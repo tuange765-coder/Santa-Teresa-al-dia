@@ -1,75 +1,61 @@
 import streamlit as st
 from sqlalchemy import create_engine, text
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Portal Willian Almenar", layout="wide", page_icon="🏛️")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Portal Willian Almenar", layout="wide")
 
-# --- PROCESO DE CONEXIÓN SEGURO ---
-# PEGA AQUÍ TU NUEVO ENLACE DE NEON (el que tiene la clave nueva)
-enlace_crudo = "postgresql://neondb_owner:AQUÍ_VA_TU_NUEVA_CLAVE@ep-polished-smoke-anreqn6i-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+# --- PEGA TU ENLACE AQUÍ ABAJO (Tal cual lo copias de Neon) ---
+# Asegúrate de haberle dado al "ojo" en Neon para que se vea la clave.
+ENLACE_COPIADO = "postgresql://neondb_owner:npg_gbuJFqhfm3r4@ep-polished-smoke-anreqn6i-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
-def conectar():
+def preparar_motor():
     try:
-        # Paso 1: Limpiar espacios
-        url = enlace_crudo.strip()
-        # Paso 2: Asegurar el driver correcto
+        url = ENLACE_COPIADO.strip()
+        # Corregimos el formato para Streamlit
         if url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
-        # Paso 3: Eliminar parámetros que causan error en Streamlit
-        url = url.split('&channel_binding')[0]
+        # Quitamos el pooler si está molestando
+        url = url.replace("-pooler", "")
         
         engine = create_engine(url)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return engine
     except Exception as e:
-        st.sidebar.error(f"❌ Error de autenticación: {e}")
+        st.error(f"❌ Error de acceso. Revisa si la clave es correcta: {e}")
         return None
 
-engine = conectar()
+engine = preparar_motor()
 
 if engine:
-    st.sidebar.success("🚀 Conexión con Neon: ACTIVA")
+    st.sidebar.success("🚀 ¡CONEXIÓN ACTIVA!")
 
-# --- DISEÑO DEL PORTAL ---
+# --- TÍTULO ---
 st.title("🏛️ Portal Integral: Willian Almenar")
-st.write("Periódico Diario • Vitrina Comercial • Música y Video")
+st.write("Tu periódico y vitrina comercial en línea.")
 
 with st.sidebar:
-    st.header("📻 Radio en Vivo")
+    st.header("📻 Radio")
     st.audio("https://stream.zeno.fm/f97vv37v908uv")
     st.divider()
-    clave = st.text_input("Clave de Administrador", type="password")
+    clave_autor = st.text_input("Clave (Año)", type="password")
 
-tab1, tab2, tab3 = st.tabs(["📰 Periódico", "🛍️ Vitrina", "🎼 Multimedia"])
+# Pestañas
+t1, t2, t3 = st.tabs(["📰 Periódico", "🛍️ Vitrina", "🎼 Multimedia"])
 
-with tab1:
-    if clave == "1966" and engine:
-        st.subheader("✍️ Publicar Nueva Noticia")
-        with st.form("diario", clear_on_submit=True):
-            t = st.text_input("Título")
-            cat = st.selectbox("Sección", ["Política", "Economía", "Sucesos", "Deportes"])
-            c = st.text_area("Contenido")
-            if st.form_submit_button("Publicar"):
+with t1:
+    if clave_autor == "1966" and engine:
+        st.subheader("✍️ Publicar Noticia")
+        with st.form("form_noticia"):
+            titulo = st.text_input("Título")
+            contenido = st.text_area("Contenido")
+            if st.form_submit_button("Subir al Diario"):
                 with engine.connect() as conn:
-                    conn.execute(text("INSERT INTO noticias (titulo, contenido, categoria) VALUES (:t, :c, :cat)"),
-                                 {"t": t, "c": c, "cat": cat})
+                    conn.execute(text("INSERT INTO noticias (titulo, contenido) VALUES (:t, :c)"),
+                                 {"t": titulo, "c": contenido})
                     conn.commit()
-                st.success("✅ Noticia guardada.")
+                st.success("Publicado correctamente.")
 
-    st.header("Últimas Noticias")
-    if engine:
-        try:
-            with engine.connect() as conn:
-                res = conn.execute(text("SELECT titulo, contenido, categoria, fecha FROM noticias ORDER BY id DESC")).fetchall()
-                for n in res:
-                    with st.expander(f"{n[2]} | {n[0]}"):
-                        st.write(n[1])
-                        st.caption(f"Fecha: {n[3]}")
-        except:
-            st.info("Esperando noticias...")
-
-with tab3:
-    st.header("🎼 Espacio del Autor y Compositor")
+with t3:
+    st.header("🎼 Multimedia")
     st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-    st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
