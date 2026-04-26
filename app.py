@@ -9,24 +9,25 @@ import time
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Guía Comercial Almenar", layout="wide", page_icon="🚀")
 
-# --- 2. CONEXIÓN SEGURA A NEON CON REINTENTOS ---
-def get_connection():
+# --- 2. CONEXIÓN SEGURA A NEON CON AUTO-DESPERTAR ---
+def obtener_conexion():
     try:
-        # Esto busca automáticamente los Secrets configurados en Streamlit Cloud
-        connection = st.connection("postgresql", type="sql")
-        # Prueba de vida: intentamos una consulta simple para despertar a Neon
-        with connection.session as s:
+        # Intentamos conectar usando los Secrets de Streamlit
+        conexion = st.connection("postgresql", type="sql")
+        # Forzamos una consulta simple para verificar si la base de datos está activa
+        with conexion.session as s:
             s.execute(text("SELECT 1"))
-        return connection
+        return conexion
     except Exception:
         return None
 
-conn = get_connection()
+# Intentamos obtener la conexión
+conn = obtener_conexion()
 
-# Si la conexión falla, mostramos un aviso amigable y reintentamos
+# Si falla (Neon está dormido), esperamos y reintentamos
 if conn is None:
-    st.warning("⚠️ La base de datos de Santa Teresa está despertando... Por favor, espera 5 segundos.")
-    time.sleep(5)
+    st.warning("⚠️ La base de datos de Santa Teresa está despertando... Por favor, espera unos segundos.")
+    time.sleep(6) # Damos tiempo suficiente para que Neon arranque
     st.rerun()
 
 # --- 3. CATEGORÍAS ---
@@ -56,8 +57,9 @@ def init_db():
             s.execute(text("CREATE TABLE IF NOT EXISTS opiniones (id SERIAL PRIMARY KEY, comercio_id INTEGER, usuario VARCHAR(100), comentario TEXT, estrellas_u INTEGER, fecha VARCHAR(50))"))
             s.execute(text("CREATE TABLE IF NOT EXISTS visitas (id INTEGER PRIMARY KEY, conteo INTEGER)"))
             
-            res_v = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
-            if not res_v:
+            # Inicializamos contador si es la primera vez
+            v_check = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
+            if not v_check:
                 s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
             s.commit()
     except Exception:
@@ -86,43 +88,43 @@ st.markdown("""
     header, footer, .stDeployButton { visibility: hidden; }
     .stApp { background-color: #111827; color: #ffffff; }
     .venezuela-header {
-        text-align: center; padding: 40px 10px;
+        text-align: center; padding: 45px 10px;
         background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
-        border-radius: 0 0 25px 25px; margin-bottom: 20px;
+        border-radius: 0 0 25px 25px; margin-bottom: 20px; box-shadow: 0px 10px 20px rgba(0,0,0,0.5);
     }
-    .stars-arc { color: white; font-size: 1.5em; letter-spacing: 8px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
+    .stars-arc { color: white; font-size: 1.5em; letter-spacing: 12px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
     .stats-panel { background: #1f2937; padding: 15px; border-radius: 15px; border: 2px solid #ffcc00; text-align: center; }
     .bronze-plaque {
-        background: linear-gradient(145deg, #8c6a31, #5d431a); border: 4px solid #d4af37;
-        padding: 30px; border-radius: 15px; text-align: center; margin-top: 40px;
+        background: linear-gradient(145deg, #8c6a31, #5d431a); border: 5px solid #d4af37;
+        padding: 40px; border-radius: 15px; text-align: center; margin-top: 50px; box-shadow: 0 10px 30px rgba(0,0,0,0.7);
     }
-    .bronze-text { color: #ffd700 !important; font-family: serif; font-weight: bold; }
+    .bronze-text { color: #ffd700 !important; font-family: 'Times New Roman', serif; font-weight: bold; text-shadow: 1px 1px 2px black; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 7. NAVEGACIÓN ---
+# --- 7. BARRA LATERAL ---
 with st.sidebar:
     st.markdown("### 🇻🇪 Opciones")
-    menu = st.radio("Sección:", ["🏢 Ver Guía", "🔐 Panel Maestro"])
+    menu = st.radio("Navegar a:", ["🏢 Guía Comercial", "🔐 Administración"])
     st.markdown("---")
     st.write(f"Viernes, {ahora_vzla.day}/{ahora_vzla.month}/{ahora_vzla.year}")
 
-# --- 8. ENCABEZADO ---
+# --- 8. CABECERA VENEZOLANA ---
 st.markdown('<div class="venezuela-header"><div class="stars-arc">★ ★ ★ ★ ★ ★ ★ ★</div></div>', unsafe_allow_html=True)
 
-if menu == "🏢 Ver Guía":
+if menu == "🏢 Guía Comercial":
     st.title("🚀 Santa Teresa al Día")
-    st.markdown(f'<div class="stats-panel">Visitas: {total_visitas}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stats-panel">📈 Visitas: {total_visitas}</div>', unsafe_allow_html=True)
     
-    busq = st.text_input("🔍 Buscar...", placeholder="¿Qué necesitas hoy?")
+    busq = st.text_input("🔍 Buscar negocio...", placeholder="¿Qué estás buscando?")
     
     tabs = st.tabs(["Todos"] + CAT_LIST)
-    df = conn.query("SELECT * FROM comercios", ttl=0)
+    df_c = conn.query("SELECT * FROM comercios", ttl=0)
 
     for i, tab in enumerate(tabs):
         with tab:
             cat_actual = (["Todos"] + CAT_LIST)[i]
-            filtrado = df if cat_actual == "Todos" else df[df['categoria'] == cat_actual]
+            filtrado = df_c if cat_actual == "Todos" else df_c[df_c['categoria'] == cat_actual]
             if busq:
                 filtrado = filtrado[filtrado['nombre'].str.contains(busq, case=False)]
             
@@ -131,33 +133,34 @@ if menu == "🏢 Ver Guía":
                     st.write(f"📍 {r['ubicacion']}")
                     st.info(f"✍️ {r['reseña_willian']}")
                     
-                    # Formulario de Opiniones con Key única para evitar errores de duplicados
-                    with st.form(key=f"op_{r['id']}_{i}", clear_on_submit=True):
-                        user = st.text_input("Nombre")
-                        comm = st.text_area("Comentario")
-                        if st.form_submit_button("Enviar"):
-                            if user and comm:
+                    # Formulario de Opiniones corregido para evitar duplicados
+                    with st.form(key=f"form_op_{r['id']}_{i}", clear_on_submit=True):
+                        u_name = st.text_input("Tu Nombre")
+                        u_comm = st.text_area("Tu Opinión")
+                        if st.form_submit_button("Enviar Opinión"):
+                            if u_name and u_comm:
                                 with conn.session as s:
                                     s.execute(text("INSERT INTO opiniones (comercio_id, usuario, comentario, fecha) VALUES (:id, :u, :c, :f)"),
-                                              {"id": r['id'], "u": user, "c": comm, "f": ahora_vzla.strftime("%d/%m/%Y")})
+                                              {"id": r['id'], "u": u_name, "c": u_comm, "f": ahora_vzla.strftime("%d/%m/%Y")})
                                     s.commit()
-                                st.success("¡Gracias!")
+                                st.success("¡Gracias por tu aporte!")
                                 time.sleep(0.5)
                                 st.rerun()
 
-elif menu == "🔐 Panel Maestro":
-    pwd = st.text_input("Contraseña", type="password")
-    if pwd == "Juan*316*":
-        st.success("Acceso autorizado")
-        # Aquí puedes colocar tu código para agregar comercios
+elif menu == "🔐 Administración":
+    clave = st.text_input("Contraseña Maestra", type="password")
+    if clave == "Juan*316*":
+        st.success("Acceso concedido, Willian.")
+        # Aquí puedes colocar el formulario para agregar comercios que tenías anteriormente
 
-# --- 9. PLACA DE BRONCE ---
+# --- 9. PLACA DE BRONCE FINAL ---
 st.markdown(f"""
 <div class="bronze-plaque">
     <div class="bronze-text">
-        <span style="font-size: 2em;">Reflexiones de Willian Almenar</span><br>
-        <span style="font-size: 1.5em; letter-spacing: 5px;">DERECHOS RESERVADOS</span><br>
-        <span style="font-size: 1.8em;">Santa Teresa del Tuy {ahora_vzla.year}</span>
+        <span style="font-size: 2.2em;">Reflexiones de Willian Almenar</span><br><br>
+        <span style="font-size: 1.5em; opacity: 0.85;">Prohibida la reproducción total o parcial</span><br>
+        <span style="font-size: 1.8em; letter-spacing: 6px; display: block; margin: 15px 0;">DERECHOS RESERVADOS</span>
+        <span style="font-size: 1.9em;">Santa Teresa del Tuy {ahora_vzla.year}</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
