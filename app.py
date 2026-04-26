@@ -4,20 +4,20 @@ from sqlalchemy import create_engine, text
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Portal Willian Almenar", layout="wide", page_icon="🏛️")
 
-# --- CONEXIÓN AUTOMÁTICA A NEON ---
-# He usado tu nueva llave: npg_5iCVFAvc6SIZ
-URL_NEON = "postgresql+psycopg2://neondb_owner:npg_5iCVFAvc6SIZ@ep-polished-smoke-anreqn6i-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+# --- CONEXIÓN DIRECTA (SIN POOLER) ---
+# He quitado la palabra "-pooler" del enlace para evitar el error de autenticación.
+URL_NEON = "postgresql+psycopg2://neondb_owner:npg_5iCVFAvc6SIZ@ep-polished-smoke-anreqn6i.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 def conectar():
     try:
-        # Limpiamos el enlace de posibles espacios
-        engine = create_engine(URL_NEON.strip())
+        # Usamos la conexión directa que es más estable
+        engine = create_engine(URL_NEON.strip(), connect_args={"connect_timeout": 10})
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return engine
     except Exception as e:
-        st.sidebar.error("❌ Error de autenticación")
-        st.sidebar.write(f"Detalle: {e}")
+        st.sidebar.error("❌ La llave aún no abre la puerta.")
+        st.sidebar.write("Detalle técnico:", str(e))
         return None
 
 engine = conectar()
@@ -29,7 +29,6 @@ if engine:
 st.title("🏛️ Portal Integral: Willian Almenar")
 st.write("Periódico Diario • Vitrina Comercial • Música y Video")
 
-# Barra Lateral con Radio y Clave
 with st.sidebar:
     st.header("📻 Radio en Vivo")
     st.audio("https://stream.zeno.fm/f97vv37v908uv")
@@ -37,18 +36,18 @@ with st.sidebar:
     st.subheader("🔑 Acceso Autor")
     clave = st.text_input("Ingresa tu Clave (1966)", type="password")
 
-# Pestañas Principales
+# Pestañas
 tab1, tab2, tab3 = st.tabs(["📰 Periódico", "🛍️ Vitrina", "🎼 Multimedia"])
 
-# --- SECCIÓN 1: PERIÓDICO ---
+# SECCIÓN PERIÓDICO
 with tab1:
     if clave == "1966" and engine:
         st.subheader("✍️ Publicar Nueva Noticia")
         with st.form("form_noticia", clear_on_submit=True):
-            titulo = st.text_input("Título de la Noticia")
+            titulo = st.text_input("Título")
             seccion = st.selectbox("Sección", ["Política", "Economía", "Sucesos", "Deportes"])
-            contenido = st.text_area("Desarrollo")
-            if st.form_submit_button("Publicar en el Diario"):
+            contenido = st.text_area("Contenido")
+            if st.form_submit_button("Publicar"):
                 try:
                     with engine.connect() as conn:
                         conn.execute(
@@ -56,9 +55,9 @@ with tab1:
                             {"t": titulo, "c": contenido, "s": seccion}
                         )
                         conn.commit()
-                    st.success("✅ Noticia guardada en Neon.")
-                except:
-                    st.error("La noticia no pudo guardarse. Verifica si la tabla existe.")
+                    st.success("✅ ¡Noticia guardada!")
+                except Exception as ex:
+                    st.error("Error al guardar. Verifica que la tabla existe en Neon.")
 
     st.header("Últimas Noticias")
     if engine:
@@ -68,18 +67,13 @@ with tab1:
                 for n in noticias:
                     with st.expander(f"{n[2]} | {n[0]}"):
                         st.write(n[1])
-                        st.caption(f"Publicado el: {n[3]}")
+                        st.caption(f"Fecha: {n[3]}")
         except:
-            st.info("El diario está listo para recibir tu primera noticia.")
+            st.info("Sistema listo. Publica tu primera noticia.")
 
-# --- SECCIÓN 2: VITRINA ---
-with tab2:
-    st.header("💎 Vitrina Comercial")
-    st.write("Impulsando el comercio de Santa Teresa del Tuy y Caracas.")
-
-# --- SECCIÓN 3: MULTIMEDIA ---
+# SECCIÓN MULTIMEDIA
 with tab3:
-    st.header("🎼 Espacio del Autor y Compositor")
+    st.header("🎼 Multimedia")
     st.subheader("🎵 Mis Composiciones")
     st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
     st.divider()
