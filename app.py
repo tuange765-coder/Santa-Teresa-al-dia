@@ -5,12 +5,11 @@ from sqlalchemy import create_engine, text
 st.set_page_config(page_title="Portal Willian Almenar", layout="wide", page_icon="🏛️")
 
 # --- CONEXIÓN CORREGIDA A NEON ---
-# He añadido +psycopg2 y eliminado el channel_binding para que no dé error
+# Tu usuario (neondb_owner) y contraseña ya están aquí adentro.
 URL_FINAL = "postgresql+psycopg2://neondb_owner:npg_R8DElKfr4gtJ@ep-polished-smoke-anreqn6i-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 try:
     engine = create_engine(URL_FINAL)
-    # Prueba de conexión rápida
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
     st.sidebar.success("🚀 Conexión con Neon: ACTIVA")
@@ -27,6 +26,7 @@ with st.sidebar:
     st.header("📻 Radio en Vivo")
     st.audio("https://stream.zeno.fm/f97vv37v908uv")
     st.divider()
+    # AQUÍ es donde usarás tu clave "1966" al abrir la página
     clave = st.text_input("Clave de Administrador", type="password")
 
 # Pestañas
@@ -62,11 +62,10 @@ with tab1:
 with tab2:
     st.header("💎 Vitrina Comercial")
     st.write("Espacio dedicado al comercio de Santa Teresa y Caracas.")
-    # Aquí puedes añadir un formulario similar al de noticias para los comercios
 
 # --- SECCIÓN 3: MULTIMEDIA ---
 with tab3:
     st.header("🎼 Espacio del Autor y Compositor")
     st.subheader("Composiciones de Willian Almenar")
-    st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ") # Reemplaza con tu video real
+    st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
