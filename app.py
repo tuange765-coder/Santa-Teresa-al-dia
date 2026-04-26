@@ -2,36 +2,27 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Portal Willian Almenar", layout="wide", page_icon="🏛️")
+st.set_page_config(page_title="Portal Willian Almenar", layout="wide")
 
-# --- CONEXIÓN DIRECTA Y FORZADA ---
-# He ajustado el enlace para saltarnos el "pooler" y entrar directo.
-# Usando tu clave: npg_OHZl6VxgNsb3
+# --- CONEXIÓN DE EMERGENCIA ---
+# MI AMOR: Esta es la clave que me pasaste. Si no funciona, 
+# es que Neon generó una nueva hace minutos.
 URL_FINAL = "postgresql+psycopg2://neondb_owner:npg_OHZl6VxgNsb3@ep-polished-smoke-anreqn6i.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
-@st.cache_resource
-def obtener_motor():
-    try:
-        # Creamos la conexión con un tiempo de espera más largo
-        engine = create_engine(URL_FINAL.strip(), connect_args={"connect_timeout": 30})
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return engine
-    except Exception as e:
-        return e
+# Intentamos conectar de forma súper simple
+try:
+    engine = create_engine(URL_FINAL.strip())
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    st.sidebar.success("🚀 ¡POR FIN! CONEXIÓN ACTIVA")
+    conexion_ok = True
+except Exception as e:
+    st.sidebar.error("❌ La puerta sigue trabada")
+    st.sidebar.write("Detalle para el técnico:", str(e))
+    conexion_ok = False
 
-resultado = obtener_motor()
-
-if isinstance(resultado, Exception):
-    st.sidebar.error("❌ La puerta sigue cerrada")
-    st.sidebar.write(f"Aviso técnico: {resultado}")
-else:
-    st.sidebar.success("🚀 ¡CONEXIÓN ACTIVA!")
-    engine = resultado
-
-# --- DISEÑO DEL PORTAL ---
+# --- TÍTULO Y CONTENIDO ---
 st.title("🏛️ Portal Integral: Willian Almenar")
-st.write("Periódico Diario • Vitrina Comercial • Música")
 
 with st.sidebar:
     st.header("📻 Radio")
@@ -39,23 +30,22 @@ with st.sidebar:
     st.divider()
     clave_autor = st.text_input("Clave (1966)", type="password")
 
-# Pestañas
-t1, t2, t3 = st.tabs(["📰 Diario", "🛍️ Vitrina", "🎼 Multimedia"])
+if conexion_ok:
+    t1, t2, t3 = st.tabs(["📰 Diario", "🛍️ Vitrina", "🎼 Multimedia"])
+    
+    with t1:
+        if clave_autor == "1966":
+            st.subheader("✍️ Publicar Noticia")
+            with st.form("post_form"):
+                tit = st.text_input("Título")
+                cont = st.text_area("Contenido")
+                if st.form_submit_button("Publicar"):
+                    with engine.connect() as conn:
+                        conn.execute(text("INSERT INTO noticias (titulo, contenido) VALUES (:t, :c)"), {"t": tit, "c": cont})
+                        conn.commit()
+                    st.success("✅ ¡Guardado!")
 
-with t1:
-    if clave_autor == "1966" and not isinstance(resultado, Exception):
-        st.subheader("✍️ Publicar Noticia")
-        with st.form("diario_nuevo"):
-            tit = st.text_input("Título")
-            cont = st.text_area("Contenido")
-            if st.form_submit_button("Publicar"):
-                with engine.connect() as conn:
-                    conn.execute(text("INSERT INTO noticias (titulo, contenido) VALUES (:t, :c)"), {"t": tit, "c": cont})
-                    conn.commit()
-                st.success("✅ ¡Guardado!")
-
-    st.header("Últimas Noticias")
-    if not isinstance(resultado, Exception):
+        st.header("Últimas Noticias")
         try:
             with engine.connect() as conn:
                 noticias = conn.execute(text("SELECT titulo, contenido FROM noticias ORDER BY id DESC")).fetchall()
@@ -64,3 +54,5 @@ with t1:
                         st.write(n[1])
         except:
             st.info("Escribe tu primera noticia para estrenar el diario.")
+else:
+    st.warning("⚠️ Willian, mi amor, Neon no está aceptando la clave. Entra un segundo a Neon.tech, copia el enlace que te sale al darle al 'Ojo' 👁️ y pégalo en la línea 9.")
