@@ -9,13 +9,25 @@ import time
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Guía Comercial Almenar", layout="wide", page_icon="🚀")
 
-# --- 2. CONEXIÓN SEGURA A NEON (POSTGRESQL) ---
-# Se utiliza st.connection para leer directamente de los Secrets
-try:
-    conn = st.connection("postgresql", type="sql")
-except Exception as e:
-    st.error("⚠️ Error de conexión. Verifica los Secrets en Streamlit Cloud.")
-    st.stop()
+# --- 2. CONEXIÓN SEGURA A NEON CON REINTENTOS ---
+def get_connection():
+    try:
+        # Esto busca automáticamente los Secrets configurados en Streamlit Cloud
+        connection = st.connection("postgresql", type="sql")
+        # Prueba de vida: intentamos una consulta simple para despertar a Neon
+        with connection.session as s:
+            s.execute(text("SELECT 1"))
+        return connection
+    except Exception:
+        return None
+
+conn = get_connection()
+
+# Si la conexión falla, mostramos un aviso amigable y reintentamos
+if conn is None:
+    st.warning("⚠️ La base de datos de Santa Teresa está despertando... Por favor, espera 5 segundos.")
+    time.sleep(5)
+    st.rerun()
 
 # --- 3. CATEGORÍAS ---
 CAT_LIST = [
@@ -25,8 +37,8 @@ CAT_LIST = [
     "Taxis", "Mototaxis", "Servicios", "Entes Publicos", "Otros"
 ]
 
-# --- 4. INICIALIZACIÓN DE TABLAS (DENTRO DE UN BLOQUE DE SEGURIDAD) ---
-def inicializar_base_de_datos():
+# --- 4. INICIALIZACIÓN DE TABLAS ---
+def init_db():
     try:
         with conn.session as s:
             s.execute(text("""
@@ -41,24 +53,21 @@ def inicializar_base_de_datos():
                 maps_url TEXT,
                 visitas INTEGER DEFAULT 0
             )"""))
-            s.execute(text("CREATE TABLE IF NOT EXISTS fotos_comercios (id SERIAL PRIMARY KEY, comercio_id INTEGER, foto_data TEXT)"))
             s.execute(text("CREATE TABLE IF NOT EXISTS opiniones (id SERIAL PRIMARY KEY, comercio_id INTEGER, usuario VARCHAR(100), comentario TEXT, estrellas_u INTEGER, fecha VARCHAR(50))"))
             s.execute(text("CREATE TABLE IF NOT EXISTS visitas (id INTEGER PRIMARY KEY, conteo INTEGER)"))
-            s.execute(text("CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, logo_data TEXT)"))
             
-            # Inicializar contador de visitas si no existe
             res_v = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
             if not res_v:
                 s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
             s.commit()
     except Exception:
-        # Si Neon está en reposo, esperamos un poco
-        time.sleep(2)
+        pass
 
-inicializar_base_de_datos()
+init_db()
 
-# --- 5. LÓGICA DE VISITAS Y TIEMPO ---
+# --- 5. LÓGICA DE TIEMPO Y VISITAS ---
 ahora_vzla = datetime.utcnow() - timedelta(hours=4)
+
 if 'visitado' not in st.session_state:
     try:
         with conn.session as s:
@@ -77,114 +86,78 @@ st.markdown("""
     header, footer, .stDeployButton { visibility: hidden; }
     .stApp { background-color: #111827; color: #ffffff; }
     .venezuela-header {
-        text-align: center; padding: 50px 10px;
+        text-align: center; padding: 40px 10px;
         background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
-        border-radius: 0 0 30px 30px; margin-bottom: 25px; box-shadow: 0px 8px 15px rgba(0,0,0,0.5);
+        border-radius: 0 0 25px 25px; margin-bottom: 20px;
     }
-    .stars-arc { color: white; font-size: 1.5em; letter-spacing: 10px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
+    .stars-arc { color: white; font-size: 1.5em; letter-spacing: 8px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
     .stats-panel { background: #1f2937; padding: 15px; border-radius: 15px; border: 2px solid #ffcc00; text-align: center; }
     .bronze-plaque {
         background: linear-gradient(145deg, #8c6a31, #5d431a); border: 4px solid #d4af37;
-        padding: 40px; border-radius: 15px; text-align: center; margin-top: 50px;
+        padding: 30px; border-radius: 15px; text-align: center; margin-top: 40px;
     }
-    .bronze-text { color: #ffd700 !important; font-family: 'Times New Roman', serif; font-weight: bold; }
+    .bronze-text { color: #ffd700 !important; font-family: serif; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 7. PANEL LATERAL ---
+# --- 7. NAVEGACIÓN ---
 with st.sidebar:
-    st.markdown('<h1 style="color:#ffcc00;">🇻🇪 Menú</h1>', unsafe_allow_html=True)
-    opcion = st.radio("Ir a:", ["🏢 Guía Comercial", "🔐 Administración"])
+    st.markdown("### 🇻🇪 Opciones")
+    menu = st.radio("Sección:", ["🏢 Ver Guía", "🔐 Panel Maestro"])
     st.markdown("---")
-    st.info("Autor: Willian Almenar\nSanta Teresa del Tuy")
+    st.write(f"Viernes, {ahora_vzla.day}/{ahora_vzla.month}/{ahora_vzla.year}")
 
 # --- 8. ENCABEZADO ---
 st.markdown('<div class="venezuela-header"><div class="stars-arc">★ ★ ★ ★ ★ ★ ★ ★</div></div>', unsafe_allow_html=True)
 
-# --- 9. INTERFAZ PÚBLICA ---
-if opcion == "🏢 Guía Comercial":
-    col_v1, col_v2 = st.columns([2, 1])
-    with col_v1:
-        st.title("🚀 Santa Teresa al Día")
-    with col_v2:
-        st.markdown(f'<div class="stats-panel"><b>VISITAS TOTALES: {total_visitas}</b></div>', unsafe_allow_html=True)
-
-    busqueda = st.text_input("🔍 Buscar negocio o categoría...", placeholder="Ej: Panadería...")
+if menu == "🏢 Ver Guía":
+    st.title("🚀 Santa Teresa al Día")
+    st.markdown(f'<div class="stats-panel">Visitas: {total_visitas}</div>', unsafe_allow_html=True)
+    
+    busq = st.text_input("🔍 Buscar...", placeholder="¿Qué necesitas hoy?")
     
     tabs = st.tabs(["Todos"] + CAT_LIST)
-    df_comercios = conn.query("SELECT * FROM comercios", ttl=0)
+    df = conn.query("SELECT * FROM comercios", ttl=0)
 
     for i, tab in enumerate(tabs):
         with tab:
-            categoria_seleccionada = (["Todos"] + CAT_LIST)[i]
+            cat_actual = (["Todos"] + CAT_LIST)[i]
+            filtrado = df if cat_actual == "Todos" else df[df['categoria'] == cat_actual]
+            if busq:
+                filtrado = filtrado[filtrado['nombre'].str.contains(busq, case=False)]
             
-            # Filtrado de datos
-            filtrado = df_comercios
-            if categoria_seleccionada != "Todos":
-                filtrado = filtrado[filtrado['categoria'] == categoria_seleccionada]
-            if busqueda:
-                filtrado = filtrado[filtrado['nombre'].str.contains(busqueda, case=False)]
-            
-            if filtrado.empty:
-                st.write("No se encontraron resultados.")
-            else:
-                for _, r in filtrado.iterrows():
-                    with st.expander(f"🏢 {r['nombre']} - {r['categoria']}"):
-                        c_img, c_info = st.columns([1, 2])
-                        with c_img:
-                            if r['foto_url']: st.image(r['foto_url'])
-                        with c_info:
-                            st.write(f"📍 **Ubicación:** {r['ubicacion']}")
-                            st.write(f"⭐ **Calificación:** {'⭐' * int(r['estrellas_w'] if r['estrellas_w'] else 0)}")
-                            st.info(f"✍️ **Reseña:** {r['reseña_willian']}")
-                            if r['maps_url']: st.link_button("Ver en Google Maps", r['maps_url'])
-                            
-                            # --- SECCIÓN OPINIONES (CON KEYS ÚNICAS) ---
-                            st.markdown("---")
-                            st.write("### Dejar Opinión")
-                            # La clave incluye el ID y la pestaña para evitar el error de duplicados
-                            with st.form(key=f"form_op_{r['id']}_{i}", clear_on_submit=True):
-                                nombre_u = st.text_input("Nombre")
-                                coment_u = st.text_area("Comentario")
-                                if st.form_submit_button("Enviar"):
-                                    if nombre_u and coment_u:
-                                        with conn.session as s:
-                                            s.execute(text("INSERT INTO opiniones (comercio_id, usuario, comentario, fecha) VALUES (:id, :u, :c, :f)"),
-                                                      {"id": r['id'], "u": nombre_u, "c": coment_u, "f": ahora_vzla.strftime("%d/%m/%Y")})
-                                            s.commit()
-                                        st.success("¡Opinión enviada!")
-                                        time.sleep(0.5)
-                                        st.rerun()
+            for _, r in filtrado.iterrows():
+                with st.expander(f"🏢 {r['nombre']}"):
+                    st.write(f"📍 {r['ubicacion']}")
+                    st.info(f"✍️ {r['reseña_willian']}")
+                    
+                    # Formulario de Opiniones con Key única para evitar errores de duplicados
+                    with st.form(key=f"op_{r['id']}_{i}", clear_on_submit=True):
+                        user = st.text_input("Nombre")
+                        comm = st.text_area("Comentario")
+                        if st.form_submit_button("Enviar"):
+                            if user and comm:
+                                with conn.session as s:
+                                    s.execute(text("INSERT INTO opiniones (comercio_id, usuario, comentario, fecha) VALUES (:id, :u, :c, :f)"),
+                                              {"id": r['id'], "u": user, "c": comm, "f": ahora_vzla.strftime("%d/%m/%Y")})
+                                    s.commit()
+                                st.success("¡Gracias!")
+                                time.sleep(0.5)
+                                st.rerun()
 
-# --- 10. ADMINISTRACIÓN ---
-elif opcion == "🔐 Administración":
-    password = st.text_input("Clave Maestra:", type="password")
-    if password == "Juan*316*":
-        st.success("Bienvenido Willian")
-        # Aquí puedes añadir el formulario de "Agregar Comercio" que ya tenías
-        with st.expander("➕ Agregar Nuevo Comercio"):
-            with st.form("add_com"):
-                n_nom = st.text_input("Nombre")
-                n_cat = st.selectbox("Categoría", CAT_LIST)
-                n_ub = st.text_input("Ubicación")
-                n_res = st.text_area("Tu Reseña")
-                n_est = st.slider("Estrellas", 1, 5, 5)
-                if st.form_submit_button("Guardar"):
-                    with conn.session as s:
-                        s.execute(text("INSERT INTO comercios (nombre, categoria, ubicacion, reseña_willian, estrellas_w) VALUES (:n, :c, :u, :r, :e)"),
-                                  {"n": n_nom, "c": n_cat, "u": n_ub, "r": n_res, "e": n_est})
-                        s.commit()
-                    st.success("Guardado con éxito.")
-                    st.rerun()
+elif menu == "🔐 Panel Maestro":
+    pwd = st.text_input("Contraseña", type="password")
+    if pwd == "Juan*316*":
+        st.success("Acceso autorizado")
+        # Aquí puedes colocar tu código para agregar comercios
 
-# --- 11. PLACA DE BRONCE FINAL ---
+# --- 9. PLACA DE BRONCE ---
 st.markdown(f"""
 <div class="bronze-plaque">
     <div class="bronze-text">
-        <span style="font-size: 2.2em;">Reflexiones de Willian Almenar</span><br><br>
-        <span style="font-size: 1.5em; opacity: 0.85;">Prohibida la reproducción total o parcial</span><br>
-        <span style="font-size: 1.8em; letter-spacing: 6px; display: block; margin: 15px 0;">DERECHOS RESERVADOS</span>
-        <span style="font-size: 1.9em;">Santa Teresa del Tuy {ahora_vzla.year}</span>
+        <span style="font-size: 2em;">Reflexiones de Willian Almenar</span><br>
+        <span style="font-size: 1.5em; letter-spacing: 5px;">DERECHOS RESERVADOS</span><br>
+        <span style="font-size: 1.8em;">Santa Teresa del Tuy {ahora_vzla.year}</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
