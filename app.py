@@ -1,166 +1,261 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-from datetime import datetime, timedelta
-from sqlalchemy import text
-from PIL import Image
+import os
+from datetime import datetime
+from PIL import Image, ImageFile
 import base64
-import time
+import urllib.parse
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
+# --- FUNCIÓN PARA MÚSICA DE FONDO ---
+def autoplay_music(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as f:
+            data = f.read()
+            b64 = base64.b64encode(data).decode()
+            md = f"""
+                <audio autoplay loop>
+                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+                </audio>
+                """
+            st.markdown(md, unsafe_allow_html=True)
+
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Guía Comercial Almenar", layout="wide", page_icon="🚀")
 
-# --- 2. CONEXIÓN SEGURA A NEON CON AUTO-DESPERTAR ---
-def obtener_conexion():
-    try:
-        # Intentamos conectar usando los Secrets de Streamlit
-        conexion = st.connection("postgresql", type="sql")
-        # Forzamos una consulta simple para verificar si la base de datos está activa
-        with conexion.session as s:
-            s.execute(text("SELECT 1"))
-        return conexion
-    except Exception:
-        return None
+# --- ACTIVAR MÚSICA ---
+# Cambia "mi_musica.mp3" por el nombre exacto de tu canción en GitHub
+autoplay_music("mi_musica.mp3")
 
-# Intentamos obtener la conexión
-conn = obtener_conexion()
-
-# Si falla (Neon está dormido), esperamos y reintentamos
-if conn is None:
-    st.warning("⚠️ La base de datos de Santa Teresa está despertando... Por favor, espera unos segundos.")
-    time.sleep(6) # Damos tiempo suficiente para que Neon arranque
-    st.rerun()
-
-# --- 3. CATEGORÍAS ---
-CAT_LIST = [
-    "Salud", "Laboratorios", "Opticas", "Farmacias", "Dulcerias",
-    "Comida Rapida", "Panaderias", "Charcuterias", "Carnicerias",
-    "Ferreterias", "Zapaterias", "Electrodomesticos", "Fibras Opticas",
-    "Taxis", "Mototaxis", "Servicios", "Entes Publicos", "Otros"
-]
-
-# --- 4. INICIALIZACIÓN DE TABLAS ---
-def init_db():
-    try:
-        with conn.session as s:
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS comercios (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(255),
-                categoria VARCHAR(100),
-                ubicacion TEXT,
-                foto_url TEXT,
-                reseña_willian TEXT,
-                estrellas_w INTEGER,
-                maps_url TEXT,
-                visitas INTEGER DEFAULT 0
-            )"""))
-            s.execute(text("CREATE TABLE IF NOT EXISTS opiniones (id SERIAL PRIMARY KEY, comercio_id INTEGER, usuario VARCHAR(100), comentario TEXT, estrellas_u INTEGER, fecha VARCHAR(50))"))
-            s.execute(text("CREATE TABLE IF NOT EXISTS visitas (id INTEGER PRIMARY KEY, conteo INTEGER)"))
-            
-            # Inicializamos contador si es la primera vez
-            v_check = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
-            if not v_check:
-                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
-            s.commit()
-    except Exception:
-        pass
-
-init_db()
-
-# --- 5. LÓGICA DE TIEMPO Y VISITAS ---
-ahora_vzla = datetime.utcnow() - timedelta(hours=4)
-
-if 'visitado' not in st.session_state:
-    try:
-        with conn.session as s:
-            s.execute(text("UPDATE visitas SET conteo = conteo + 1 WHERE id = 1"))
-            s.commit()
-        st.session_state.visitado = True
-    except Exception:
-        pass
-
-res_visitas = conn.query("SELECT conteo FROM visitas WHERE id = 1", ttl=0)
-total_visitas = res_visitas.iloc[0,0] if not res_visitas.empty else 0
-
-# --- 6. ESTILOS CSS (DISEÑO VENEZUELA) ---
+# --- ESTILO VENEZUELA (TU DISEÑO ORIGINAL) ---
 st.markdown("""
 <style>
-    header, footer, .stDeployButton { visibility: hidden; }
-    .stApp { background-color: #111827; color: #ffffff; }
-    .venezuela-header {
-        text-align: center; padding: 45px 10px;
-        background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
-        border-radius: 0 0 25px 25px; margin-bottom: 20px; box-shadow: 0px 10px 20px rgba(0,0,0,0.5);
-    }
-    .stars-arc { color: white; font-size: 1.5em; letter-spacing: 12px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
-    .stats-panel { background: #1f2937; padding: 15px; border-radius: 15px; border: 2px solid #ffcc00; text-align: center; }
-    .bronze-plaque {
-        background: linear-gradient(145deg, #8c6a31, #5d431a); border: 5px solid #d4af37;
-        padding: 40px; border-radius: 15px; text-align: center; margin-top: 50px; box-shadow: 0 10px 30px rgba(0,0,0,0.7);
-    }
-    .bronze-text { color: #ffd700 !important; font-family: 'Times New Roman', serif; font-weight: bold; text-shadow: 1px 1px 2px black; }
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.viewerBadge_container__1QSob {display: none !important;}
+.stDeployButton {display: none !important;}
+.stAppToolbar {visibility: hidden !important; display: none !important;}
+[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+button[title="Manage app"] {display: none !important;}
+div[data-testid="stStatusWidget"] {display: none !important;}
+.stAppDeployButton {display: none !important;}
+
+.stApp { background-color: #111827; color: #ffffff; }
+
+/* REFUERZO DE COLOR PARA LETRAS Y PESTAÑAS */
+h1, h2, h3, h4, h5, h6, p, label, .stMarkdown {
+    color: #ffffff !important;
+}
+
+/* Estilo para las pestañas (Tabs) para que se vean claras */
+button[data-baseweb="tab"] p {
+    color: #ffcc00 !important;
+    font-weight: bold !important;
+    font-size: 1.1em !important;
+}
+
+.venezuela-header {
+    text-align: center;
+    padding: 60px 10px 40px 10px;
+    background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
+    border-radius: 100% 100% 25px 25px / 120% 120% 25px 25px;
+    margin-bottom: 30px;
+    box-shadow: 0px 10px 20px rgba(0,0,0,0.6);
+}
+.stars-arc {
+    color: white;
+    font-size: 2.5em;
+    letter-spacing: 15px;
+    font-weight: bold;
+    text-shadow: 3px 3px 6px #000;
+    margin-top: -15px;
+}
+
+.logo-container {
+    text-align: center;
+    margin-top: -50px; /* Ajustado para el nuevo tamaño del logo */
+    margin-bottom: 20px;
+}
+.app-logo {
+    border-radius: 50% / 30%;
+    border: 3px solid #ffcc00;
+    box-shadow: 0px 4px 10px rgba(0,0,0,0.5);
+}
+
+input, textarea, [data-baseweb="select"] {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-weight: bold !important;
+}
+
+.footer-willian {
+    background: #000;
+    color: #fff;
+    padding: 30px;
+    text-align: center;
+    border-top: 4px solid #ffcc00;
+    margin-top: 50px;
+}
+.gold-text {
+    background: linear-gradient(to bottom, #cf9710 22%, #ffcc00 24%, #f1c40f 26%, #fff700 27%, #ffcc00 40%, #e1aa33 78%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
+.maps-button {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #ea4335;
+    color: white !important;
+    text-decoration: none;
+    border-radius: 5px;
+    font-weight: bold;
+    margin-top: 10px;
+    text-align: center;
+}
+
+/* Estilo para que la barra lateral combine con tu diseño */
+[data-testid="stSidebar"] {
+    background-color: #1f2937;
+    border-right: 2px solid #ffcc00;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 7. BARRA LATERAL ---
-with st.sidebar:
-    st.markdown("### 🇻🇪 Opciones")
-    menu = st.radio("Navegar a:", ["🏢 Guía Comercial", "🔐 Administración"])
-    st.markdown("---")
-    st.write(f"Viernes, {ahora_vzla.day}/{ahora_vzla.month}/{ahora_vzla.year}")
+# --- BASE DE DATOS ---
+conn = sqlite3.connect('guia_santa_teresa.db', check_same_thread=False)
+c = conn.cursor()
+c.execute('CREATE TABLE IF NOT EXISTS comercios (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, categoria TEXT, ubicacion TEXT, foto_url TEXT, reseña_willian TEXT, estrellas_w INTEGER)')
+c.execute('CREATE TABLE IF NOT EXISTS opiniones (id INTEGER PRIMARY KEY AUTOINCREMENT, comercio_id INTEGER, usuario TEXT, comentario TEXT, estrellas_u INTEGER, fecha TEXT)')
+c.execute('CREATE TABLE IF NOT EXISTS ajustes (id INTEGER PRIMARY KEY, logo_url TEXT)')
+# Tabla para el contador de visitas
+c.execute('CREATE TABLE IF NOT EXISTS visitas (fecha TEXT PRIMARY KEY, conteo INTEGER)')
+conn.commit()
 
-# --- 8. CABECERA VENEZOLANA ---
+# --- REGISTRO DE VISITA DIARIA ---
+fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+c.execute("INSERT OR IGNORE INTO visitas (fecha, conteo) VALUES (?, 0)", (fecha_hoy,))
+c.execute("UPDATE visitas SET conteo = conteo + 1 WHERE fecha = ?", (fecha_hoy,))
+conn.commit()
+
+# --- CARGA DE LOGO ---
+c.execute("SELECT logo_url FROM ajustes WHERE id=1")
+res_logo = c.fetchone()
+current_logo = res_logo[0] if res_logo else "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
+
+# --- CABECERA ---
 st.markdown('<div class="venezuela-header"><div class="stars-arc">★ ★ ★ ★ ★ ★ ★ ★</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="logo-container"><img src="{current_logo}" class="app-logo" width="180"></div>', unsafe_allow_html=True)
+st.title("🚀 Guía Comercial Almenar")
 
-if menu == "🏢 Guía Comercial":
-    st.title("🚀 Santa Teresa al Día")
-    st.markdown(f'<div class="stats-panel">📈 Visitas: {total_visitas}</div>', unsafe_allow_html=True)
-    
-    busq = st.text_input("🔍 Buscar negocio...", placeholder="¿Qué estás buscando?")
-    
-    tabs = st.tabs(["Todos"] + CAT_LIST)
-    df_c = conn.query("SELECT * FROM comercios", ttl=0)
+# --- CONTROL POR PESTAÑAS PRINCIPALES (TAB) ---
+tab_publico, tab_llave_admin = st.tabs(["🏪 Guía Comercial", "🔑 Panel de Control"])
 
-    for i, tab in enumerate(tabs):
-        with tab:
-            cat_actual = (["Todos"] + CAT_LIST)[i]
-            filtrado = df_c if cat_actual == "Todos" else df_c[df_c['categoria'] == cat_actual]
-            if busq:
-                filtrado = filtrado[filtrado['nombre'].str.contains(busq, case=False)]
+with tab_llave_admin:
+    st.markdown("### ⚙️ Gestión de Sistema")
+    with st.expander("Abrir Cerradura Administrativa", expanded=False):
+        admin_pass = st.text_input("Introduce la clave maestra", type="password", key="pass_admin_main")
+        if admin_pass == "Juan*316*":
+            st.success("Modo Editor Total Activado")
             
-            for _, r in filtrado.iterrows():
-                with st.expander(f"🏢 {r['nombre']}"):
-                    st.write(f"📍 {r['ubicacion']}")
-                    st.info(f"✍️ {r['reseña_willian']}")
-                    
-                    # Formulario de Opiniones corregido para evitar duplicados
-                    with st.form(key=f"form_op_{r['id']}_{i}", clear_on_submit=True):
-                        u_name = st.text_input("Tu Nombre")
-                        u_comm = st.text_area("Tu Opinión")
-                        if st.form_submit_button("Enviar Opinión"):
-                            if u_name and u_comm:
-                                with conn.session as s:
-                                    s.execute(text("INSERT INTO opiniones (comercio_id, usuario, comentario, fecha) VALUES (:id, :u, :c, :f)"),
-                                              {"id": r['id'], "u": u_name, "c": u_comm, "f": ahora_vzla.strftime("%d/%m/%Y")})
-                                    s.commit()
-                                st.success("¡Gracias por tu aporte!")
-                                time.sleep(0.5)
-                                st.rerun()
+            # --- SECCIÓN DE ESTADÍSTICAS (CONTADOR) ---
+            st.markdown("### 📊 Estadísticas de Visitas")
+            df_visitas = pd.read_sql_query("SELECT fecha as 'Fecha', conteo as 'Usuarios' FROM visitas ORDER BY fecha DESC LIMIT 7", conn)
+            st.table(df_visitas)
+            
+            lista_categorias = ["Salud", "Farmacias", "Ópticas", "Ferretería", "Abastos", "Supermerkados", "Electrodomésticos", "Telefonía", "Carnicerías", "Tienda de ropa", "Servicios"]
+            
+            accion = st.radio("Acción:", ["Añadir", "Modificar/Quitar", "Borrar Negocio", "Ajustes Logo"], horizontal=True)
+            
+            if accion == "Añadir":
+                with st.form("admin_add"):
+                    n = st.text_input("Nombre del Negocio")
+                    cat = st.selectbox("Categoría", lista_categorias)
+                    ub = st.text_input("Ubicación")
+                    up_file = st.file_uploader("Subir foto de negocio (PC)", type=['png', 'jpg', 'jpeg'])
+                    url_img = st.text_input("O Link de Imagen", value="https://via.placeholder.com/600x300")
+                    res = st.text_area("Escribir Reseña Inicial")
+                    if st.form_submit_button("Guardar Negocio"):
+                        final_img = url_img
+                        if up_file:
+                            final_img = f"data:image/png;base64,{base64.b64encode(up_file.read()).decode()}"
+                        c.execute("INSERT INTO comercios (nombre, categoria, ubicacion, foto_url, reseña_willian, estrellas_w) VALUES (?,?,?,?,?,?)", (n, cat, ub, final_img, res, 5))
+                        conn.commit()
+                        st.rerun()
 
-elif menu == "🔐 Administración":
-    clave = st.text_input("Contraseña Maestra", type="password")
-    if clave == "Juan*316*":
-        st.success("Acceso concedido, Willian.")
-        # Aquí puedes colocar el formulario para agregar comercios que tenías anteriormente
+            elif accion == "Modificar/Quitar":
+                df_mod = pd.read_sql_query("SELECT * FROM comercios", conn)
+                if not df_mod.empty:
+                    target_mod = st.selectbox("Selecciona Negocio", df_mod['nombre'].tolist())
+                    row = df_mod[df_mod['nombre'] == target_mod].iloc[0]
+                    with st.form("edit_form"):
+                        new_n = st.text_input("Editar Nombre", value=row['nombre'])
+                        new_ub = st.text_input("Editar Ubicación", value=row['ubicacion'])
+                        new_res = st.text_area("Modificar Reseña", value=row['reseña_willian'])
+                        new_up_file = st.file_uploader("Nueva Foto", type=['png', 'jpg', 'jpeg'])
+                        if st.form_submit_button("Actualizar Todo"):
+                            if new_up_file:
+                                img_data = f"data:image/png;base64,{base64.b64encode(new_up_file.read()).decode()}"
+                                c.execute("UPDATE comercios SET nombre=?, ubicacion=?, reseña_willian=?, foto_url=? WHERE id=?", (new_n, new_ub, new_res, img_data, int(row['id'])))
+                            else:
+                                c.execute("UPDATE comercios SET nombre=?, ubicacion=?, reseña_willian=? WHERE id=?", (new_n, new_ub, new_res, int(row['id'])))
+                            conn.commit()
+                            st.rerun()
+                        if st.form_submit_button("Quitar Reseña"):
+                            c.execute("UPDATE comercios SET reseña_willian='' WHERE id=?", (int(row['id']),))
+                            conn.commit()
+                            st.rerun()
 
-# --- 9. PLACA DE BRONCE FINAL ---
+            elif accion == "Borrar Negocio":
+                df_del = pd.read_sql_query("SELECT * FROM comercios", conn)
+                if not df_del.empty:
+                    target = st.selectbox("Negocio a eliminar:", df_del['nombre'].tolist())
+                    if st.button("Confirmar Eliminación"):
+                        c.execute("DELETE FROM comercios WHERE nombre=?", (target,))
+                        conn.commit()
+                        st.rerun()
+
+            elif accion == "Ajustes Logo":
+                st.write("Carga el logo de cabecera:")
+                new_logo = st.file_uploader("Seleccionar Logo", type=['png', 'jpg', 'jpeg'])
+                if new_logo and st.button("Aplicar Logo"):
+                    encoded_logo = base64.b64encode(new_logo.read()).decode()
+                    c.execute("INSERT OR REPLACE INTO ajustes (id, logo_url) VALUES (1, ?)", (f"data:image/png;base64,{encoded_logo}",))
+                    conn.commit()
+                    st.rerun()
+
+with tab_publico:
+    # --- BÚSQUEDA Y CONTENIDO ---
+    busq = st.text_input("🔍 ¿Qué buscas hoy en Santa Teresa?")
+    df = pd.read_sql_query("SELECT * FROM comercios", conn)
+    if not df.empty:
+        categorias_db = df['categoria'].unique().tolist()
+        tabs_negocios = st.tabs(categorias_db if categorias_db else ["General"])
+        for i, cat_name in enumerate(categorias_db):
+            with tabs_negocios[i]:
+                filtrado = df[(df['categoria'] == cat_name) & (df['nombre'].str.contains(busq, case=False))]
+                for idx, r in filtrado.iterrows():
+                    st.markdown(f"##### 🏢 **{r['nombre']}**")
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        st.image(r['foto_url'], use_container_width=True)
+                        st.write(f"📍 **Ubicación:** {r['ubicacion']}")
+                        query_maps = urllib.parse.quote(f"{r['nombre']} {r['ubicacion']} Santa Teresa del Tuy")
+                        st.markdown(f'<a href="https://www.google.com/maps/search/{query_maps}" target="_blank" class="maps-button">📍 Ver en Google Maps</a>', unsafe_allow_html=True)
+                    with col2:
+                        if r['reseña_willian']:
+                            st.info(f"**Reseña de Willian:** {r['reseña_willian']}")
+                        else:
+                            st.write("*Sin reseña disponible por ahora.*")
+                    st.markdown("---")
+
+# --- PIE DE PÁGINA ---
 st.markdown(f"""
-<div class="bronze-plaque">
-    <div class="bronze-text">
-        <span style="font-size: 2.2em;">Reflexiones de Willian Almenar</span><br><br>
-        <span style="font-size: 1.5em; opacity: 0.85;">Prohibida la reproducción total o parcial</span><br>
-        <span style="font-size: 1.8em; letter-spacing: 6px; display: block; margin: 15px 0;">DERECHOS RESERVADOS</span>
-        <span style="font-size: 1.9em;">Santa Teresa del Tuy {ahora_vzla.year}</span>
-    </div>
+<div class='footer-willian'>
+    <span class='gold-text'>© {datetime.now().year} - Diseñada por Willian Almenar</span><br>
+    Santa Teresa del Tuy 2026
 </div>
 """, unsafe_allow_html=True)
