@@ -278,25 +278,6 @@ def imagen_a_base64(uploaded_file):
             return None
     return None
 
-# --- SISTEMA DE LOGIN ---
-CLAVE_ADMIN = "1966"
-
-def verificar_admin():
-    """Verifica si el usuario es administrador"""
-    if 'autenticado' not in st.session_state:
-        st.session_state.autenticado = False
-    
-    with st.sidebar:
-        if st.checkbox("🔐 Acceso Administrador"):
-            clave = st.text_input("Clave de Administrador:", type="password")
-            if clave == CLAVE_ADMIN:
-                st.session_state.autenticado = True
-                st.success("Acceso concedido")
-            elif clave:
-                st.error("Clave incorrecta")
-    
-    return st.session_state.autenticado
-
 # --- FUNCIONES CRUD PARA CADA SECCION ---
 def publicar_noticia(titulo, categoria, contenido, imagen):
     """Publica una nueva noticia"""
@@ -734,10 +715,11 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Login de administrador
+    # Login de administrador - CLAVE CORREGIDA
     if st.checkbox("Acceso Administrador"):
         clave_admin = st.text_input("Clave:", type="password")
-        if clave_admin == CLAVE_ADMIN:
+        # Ambas contraseñas funcionan: Juan*316* y 1966
+        if clave_admin == "Juan*316*" or clave_admin == "1966":
             st.session_state.autenticado = True
             st.success("Acceso concedido")
         elif clave_admin:
