@@ -4,3 +4,8 @@ sqlalchemy
 psycopg2-binary
 Pillow
 pytz
+requests
+cloudinary
+appwrite
+gdown
+dropbox
