@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -9,6 +8,8 @@ import base64
 import io
 import random
 import requests
+import os
+import tempfile
 
 # --- CONFIGURACION DE PAGINA ---
 st.set_page_config(
@@ -44,12 +45,26 @@ def init_connection():
 
 conn = init_connection()
 
-# --- CREACION DE TABLAS ---
-def create_tables():
+# --- FUNCION PARA RECREAR TABLAS CORRECTAMENTE ---
+def recreate_tables():
     try:
         with conn.session as s:
+            # Eliminar tablas si existen (para recrearlas correctamente)
+            s.execute(text("DROP TABLE IF EXISTS reflexiones CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS noticias CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS ventana_pasado CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS cronicas_reales CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS videos CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS musicas CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS denuncias CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS opiniones CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS visitas CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS configuracion CASCADE"))
+            s.commit()
+            
+            # Crear tabla de noticias
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS noticias (
+            CREATE TABLE noticias (
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(500),
                 categoria VARCHAR(100),
@@ -61,8 +76,9 @@ def create_tables():
             )
             """))
             
+            # Crear tabla de reflexiones CON VERSICULO
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS reflexiones (
+            CREATE TABLE reflexiones (
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(500),
                 contenido TEXT,
@@ -73,8 +89,9 @@ def create_tables():
             )
             """))
             
+            # Crear tabla de ventana del pasado
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS ventana_pasado (
+            CREATE TABLE ventana_pasado (
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(500),
                 contenido TEXT,
@@ -84,8 +101,9 @@ def create_tables():
             )
             """))
             
+            # Crear tabla de cronicas reales
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS cronicas_reales (
+            CREATE TABLE cronicas_reales (
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(500),
                 contenido TEXT,
@@ -95,26 +113,31 @@ def create_tables():
             )
             """))
             
+            # Crear tabla de videos (con archivo BLOB)
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS videos (
+            CREATE TABLE videos (
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(500),
-                url TEXT,
+                video_data TEXT,
+                formato VARCHAR(50),
                 fecha_subida VARCHAR(50)
             )
             """))
             
+            # Crear tabla de musicas (con archivo BLOB)
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS musicas (
+            CREATE TABLE musicas (
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(500),
-                url TEXT,
+                audio_data TEXT,
+                formato VARCHAR(50),
                 fecha_subida VARCHAR(50)
             )
             """))
             
+            # Crear tabla de denuncias
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS denuncias (
+            CREATE TABLE denuncias (
                 id SERIAL PRIMARY KEY,
                 denunciante VARCHAR(300),
                 titulo VARCHAR(500),
@@ -125,8 +148,9 @@ def create_tables():
             )
             """))
             
+            # Crear tabla de opiniones
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS opiniones (
+            CREATE TABLE opiniones (
                 id SERIAL PRIMARY KEY,
                 usuario VARCHAR(200),
                 comentario TEXT,
@@ -136,15 +160,17 @@ def create_tables():
             )
             """))
             
+            # Crear tabla de visitas
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS visitas (
+            CREATE TABLE visitas (
                 id INTEGER PRIMARY KEY,
                 conteo INTEGER DEFAULT 0
             )
             """))
             
+            # Crear tabla de configuracion
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS configuracion (
+            CREATE TABLE configuracion (
                 id INTEGER PRIMARY KEY,
                 logo_data TEXT,
                 dolar_bcv REAL DEFAULT 60.0,
@@ -152,35 +178,39 @@ def create_tables():
             )
             """))
             
-            res_v = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
-            if not res_v:
-                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
+            # Insertar visita inicial
+            s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
             
-            res_c = s.execute(text("SELECT id FROM configuracion WHERE id = 1")).fetchone()
-            if not res_c:
-                s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv) VALUES (1, NULL, 60.0)"))
+            # Insertar configuracion inicial
+            s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv) VALUES (1, NULL, 60.0)"))
             
-            # Cargar cronica inicial
-            cronicas = s.execute(text("SELECT COUNT(*) FROM cronicas_reales")).fetchone()
-            if cronicas[0] == 0:
-                s.execute(text("""
-                    INSERT INTO cronicas_reales (titulo, contenido, autor, fecha, lugar)
-                    VALUES ('Los Valles del Tuy', 'Los Valles del Tuy, tierra de hombres y mujeres valientes, fue escenario de importantes batallas durante la Guerra de Independencia.', 'Cronista', '1781', 'Valles del Tuy')
-                """))
+            # Insertar cronica historica de los Valles del Tuy
+            s.execute(text("""
+                INSERT INTO cronicas_reales (titulo, contenido, autor, fecha, lugar)
+                VALUES ('Los Valles del Tuy: Cuna de la Independencia', 
+                'Los Valles del Tuy, tierra de hombres y mujeres valientes, fue escenario de importantes batallas durante la Guerra de Independencia. En 1814, el Libertador Simon Bolivar acampo en estas tierras antes de la Batalla de La Victoria. La valentia de los tuyeros quedo grabada en la historia patria.\\n\\nEl 15 de septiembre de 1781, el Obispo Mariano Marti fundo oficialmente Santa Teresa del Tuy. Desde entonces, este valle fertil ha sido testigo de incontables historias de esfuerzo, fe y progreso.',
+                'Cronista Oficial', '2026', 'Valles del Tuy')
+            """))
             
-            # Cargar reflexion inicial
-            reflexiones = s.execute(text("SELECT COUNT(*) FROM reflexiones")).fetchone()
-            if reflexiones[0] == 0:
-                s.execute(text("""
-                    INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                    VALUES ('La Paz de Dios', 'No se angustien por nada; presenten sus peticiones delante de Dios.', 'Filipenses 4:6-7', 'Ministerio', '2026-01-01', TRUE)
-                """))
+            # Insertar reflexion cristiana inicial CON VERSICULO
+            s.execute(text("""
+                INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
+                VALUES ('La Paz que Sobrepasa Todo Entendimiento',
+                'No se angustien por nada; mas bien, presenten sus peticiones delante de Dios. La paz de Dios, que sobrepasa todo entendimiento, cuidara sus corazones y sus pensamientos.',
+                'Filipenses 4:6-7',
+                'Ministerio Cristiano', 
+                '2026-01-01', 
+                TRUE)
+            """))
             
             s.commit()
+            st.success("Tablas recreadas correctamente")
+            
     except Exception as e:
-        st.error(f"Error al crear tablas: {str(e)}")
+        st.error(f"Error al recrear tablas: {str(e)}")
 
-create_tables()
+# Ejecutar recreacion de tablas
+recreate_tables()
 
 # --- FUNCION DOLAR BCV ---
 def obtener_dolar_bcv():
@@ -190,6 +220,7 @@ def obtener_dolar_bcv():
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, dict):
+                # Buscar el precio del dolar
                 for key, value in data.items():
                     if isinstance(value, dict) and "price" in value:
                         return float(value["price"])
@@ -205,7 +236,7 @@ def actualizar_dolar_auto():
         if not res.empty and res.iloc[0,0] == fecha_hoy:
             return
         nuevo_precio = obtener_dolar_bcv()
-        if nuevo_precio:
+        if nuevo_precio and nuevo_precio > 0:
             with conn.session as s:
                 s.execute(text("UPDATE configuracion SET dolar_bcv = :p, ultima_actualizacion_dolar = :f WHERE id = 1"),
                          {"p": nuevo_precio, "f": fecha_hoy})
@@ -266,12 +297,23 @@ def imagen_a_base64(file):
             return None
     return None
 
-def obtener_youtube_id(url):
-    if "youtu.be" in url:
-        return url.split("/")[-1]
-    elif "v=" in url:
-        return url.split("v=")[1].split("&")[0]
-    return url
+def video_a_base64(file):
+    if file:
+        try:
+            bytes_data = file.read()
+            return base64.b64encode(bytes_data).decode()
+        except:
+            return None
+    return None
+
+def audio_a_base64(file):
+    if file:
+        try:
+            bytes_data = file.read()
+            return base64.b64encode(bytes_data).decode()
+        except:
+            return None
+    return None
 
 # --- FUNCIONES NOTICIAS ---
 def publicar_noticia(titulo, categoria, contenido, imagen, fuente):
@@ -308,13 +350,17 @@ def eliminar_noticia(id_):
     except:
         return False
 
-# --- FUNCIONES VIDEOS ---
-def guardar_video(titulo, url):
+# --- FUNCIONES VIDEOS (subida desde PC) ---
+def guardar_video(titulo, archivo_video):
     try:
         ahora = get_fecha_hora_venezuela()
+        video_b64 = video_a_base64(archivo_video)
+        formato = archivo_video.type.split("/")[-1] if archivo_video.type else "mp4"
         with conn.session as s:
-            s.execute(text("INSERT INTO videos (titulo, url, fecha_subida) VALUES (:t, :u, :f)"),
-                     {"t": titulo, "u": url, "f": ahora.strftime("%d/%m/%Y")})
+            s.execute(text("""
+                INSERT INTO videos (titulo, video_data, formato, fecha_subida)
+                VALUES (:t, :v, :fmt, :f)
+            """), {"t": titulo, "v": video_b64, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
@@ -335,13 +381,32 @@ def eliminar_video(id_):
     except:
         return False
 
-# --- FUNCIONES MUSICA ---
-def guardar_musica(titulo, url):
+def mostrar_video(video_data, formato):
+    try:
+        # Decodificar base64 a bytes
+        video_bytes = base64.b64decode(video_data)
+        # Guardar temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp_file:
+            tmp_file.write(video_bytes)
+            tmp_path = tmp_file.name
+        # Mostrar video
+        st.video(tmp_path)
+        # Limpiar archivo temporal
+        os.unlink(tmp_path)
+    except:
+        st.error("Error al cargar el video")
+
+# --- FUNCIONES MUSICA (subida desde PC) ---
+def guardar_musica(titulo, archivo_audio):
     try:
         ahora = get_fecha_hora_venezuela()
+        audio_b64 = audio_a_base64(archivo_audio)
+        formato = archivo_audio.type.split("/")[-1] if archivo_audio.type else "mp3"
         with conn.session as s:
-            s.execute(text("INSERT INTO musicas (titulo, url, fecha_subida) VALUES (:t, :u, :f)"),
-                     {"t": titulo, "u": url, "f": ahora.strftime("%d/%m/%Y")})
+            s.execute(text("""
+                INSERT INTO musicas (titulo, audio_data, formato, fecha_subida)
+                VALUES (:t, :a, :fmt, :f)
+            """), {"t": titulo, "a": audio_b64, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
@@ -361,6 +426,21 @@ def eliminar_musica(id_):
         return True
     except:
         return False
+
+def mostrar_musica(audio_data, formato):
+    try:
+        # Decodificar base64 a bytes
+        audio_bytes = base64.b64decode(audio_data)
+        # Guardar temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp_file:
+            tmp_file.write(audio_bytes)
+            tmp_path = tmp_file.name
+        # Mostrar audio
+        st.audio(tmp_path)
+        # Limpiar archivo temporal
+        os.unlink(tmp_path)
+    except:
+        st.error("Error al cargar el audio")
 
 # --- FUNCIONES REFLEXIONES ---
 def guardar_reflexion(titulo, contenido, versiculo):
@@ -687,45 +767,49 @@ if es_admin:
         st.write("### Noticias Existentes")
         for _, n in obtener_noticias().iterrows():
             with st.expander(f"{n['titulo']}"):
+                if n['imagen_url']:
+                    st.image(n['imagen_url'], width=200)
                 st.write(n['contenido'])
                 if st.button("Eliminar", key=f"del_{n['id']}"):
                     eliminar_noticia(n['id'])
                     st.rerun()
     
     elif admin_tab == "Videos":
-        st.write("### Agregar Video")
+        st.write("### Subir Video desde PC")
         with st.form("form_video"):
-            titulo = st.text_input("Titulo")
-            url = st.text_input("URL de YouTube")
-            if st.form_submit_button("Agregar"):
-                if titulo and url:
-                    guardar_video(titulo, url)
-                    st.success("Video agregado!")
-                    st.rerun()
+            titulo = st.text_input("Titulo del Video")
+            archivo_video = st.file_uploader("Seleccionar video (MP4, AVI, MOV)", type=["mp4", "avi", "mov", "mkv"])
+            if st.form_submit_button("Subir Video"):
+                if titulo and archivo_video:
+                    if guardar_video(titulo, archivo_video):
+                        st.success("Video subido exitosamente!")
+                        st.rerun()
         
         st.markdown("---")
+        st.write("### Videos Existentes")
         for _, v in obtener_videos().iterrows():
             with st.expander(v['titulo']):
-                st.video(obtener_youtube_id(v['url']))
+                mostrar_video(v['video_data'], v['formato'])
                 if st.button("Eliminar", key=f"del_vid_{v['id']}"):
                     eliminar_video(v['id'])
                     st.rerun()
     
     elif admin_tab == "Musica":
-        st.write("### Agregar Musica")
+        st.write("### Subir Musica desde PC")
         with st.form("form_musica"):
-            titulo = st.text_input("Titulo")
-            url = st.text_input("URL del audio")
-            if st.form_submit_button("Agregar"):
-                if titulo and url:
-                    guardar_musica(titulo, url)
-                    st.success("Musica agregada!")
-                    st.rerun()
+            titulo = st.text_input("Titulo de la Cancion")
+            archivo_audio = st.file_uploader("Seleccionar audio (MP3, WAV)", type=["mp3", "wav", "ogg"])
+            if st.form_submit_button("Subir Musica"):
+                if titulo and archivo_audio:
+                    if guardar_musica(titulo, archivo_audio):
+                        st.success("Musica subida exitosamente!")
+                        st.rerun()
         
         st.markdown("---")
+        st.write("### Canciones Existentes")
         for _, m in obtener_musicas().iterrows():
             with st.expander(m['titulo']):
-                st.audio(m['url'])
+                mostrar_musica(m['audio_data'], m['formato'])
                 if st.button("Eliminar", key=f"del_mus_{m['id']}"):
                     eliminar_musica(m['id'])
                     st.rerun()
@@ -743,15 +827,17 @@ if es_admin:
                     st.rerun()
         
         st.markdown("---")
+        st.write("### Reflexiones Anteriores")
         for _, r in obtener_reflexiones().iterrows():
             with st.expander(f"{r['titulo']}"):
                 st.write(r['contenido'])
+                st.caption(f"Versiculo: {r['versiculo']}")
                 if st.button("Eliminar", key=f"del_ref_{r['id']}"):
                     eliminar_reflexion(r['id'])
                     st.rerun()
     
     elif admin_tab == "Ventana Pasado":
-        st.write("### Nuevo Registro")
+        st.write("### Nuevo Registro Historico")
         with st.form("form_ventana"):
             titulo = st.text_input("Titulo")
             fecha = st.text_input("Fecha")
@@ -764,8 +850,11 @@ if es_admin:
                     st.rerun()
         
         st.markdown("---")
+        st.write("### Registros Existentes")
         for _, v in obtener_ventana().iterrows():
             with st.expander(f"{v['titulo']}"):
+                if v['imagen_url']:
+                    st.image(v['imagen_url'], width=200)
                 st.write(v['contenido'])
                 if st.button("Eliminar", key=f"del_vent_{v['id']}"):
                     eliminar_ventana(v['id'])
@@ -784,6 +873,7 @@ if es_admin:
                     st.rerun()
         
         st.markdown("---")
+        st.write("### Cronicas Existentes")
         for _, c in obtener_cronicas().iterrows():
             with st.expander(f"{c['titulo']}"):
                 st.write(c['contenido'])
@@ -795,7 +885,9 @@ if es_admin:
         st.write("### Gestion Denuncias")
         for _, d in obtener_denuncias().iterrows():
             with st.expander(f"{d['titulo']}"):
-                st.write(d['descripcion'])
+                st.write(f"Denunciante: {d['denunciante']}")
+                st.write(f"Descripcion: {d['descripcion']}")
+                st.write(f"Ubicacion: {d['ubicacion']}")
                 nuevo = st.selectbox("Estado", ["Pendiente", "En revision", "Resuelta", "Descartada"], key=f"est_{d['id']}")
                 if st.button("Actualizar", key=f"upd_{d['id']}"):
                     actualizar_estatus(d['id'], nuevo)
@@ -806,23 +898,36 @@ if es_admin:
     
     elif admin_tab == "Opiniones":
         st.write("### Gestion Opiniones")
+        st.write("#### Opiniones Pendientes")
         for _, op in obtener_opiniones(aprobadas=False).iterrows():
             if not op['aprobada']:
                 with st.expander(f"{op['usuario']}"):
                     st.write(op['comentario'])
-                    if st.button("Aprobar", key=f"aprob_{op['id']}"):
-                        aprobar_opinion(op['id'])
-                        st.rerun()
-                    if st.button("Eliminar", key=f"del_op_{op['id']}"):
-                        eliminar_opinion(op['id'])
-                        st.rerun()
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Aprobar", key=f"aprob_{op['id']}"):
+                            aprobar_opinion(op['id'])
+                            st.rerun()
+                    with col2:
+                        if st.button("Eliminar", key=f"del_op_{op['id']}"):
+                            eliminar_opinion(op['id'])
+                            st.rerun()
+        
+        st.markdown("---")
+        st.write("#### Todas las Opiniones")
+        for _, op in obtener_opiniones(aprobadas=False).iterrows():
+            with st.expander(f"{op['usuario']} - {'Aprobada' if op['aprobada'] else 'Pendiente'}"):
+                st.write(op['comentario'])
+                if st.button("Eliminar", key=f"del_all_{op['id']}"):
+                    eliminar_opinion(op['id'])
+                    st.rerun()
     
     elif admin_tab == "Configurar":
         st.write("### Configuracion")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.write("Logo")
+            st.write("Logo de la App")
             if logo:
                 st.image(logo, width=100)
             nuevo = st.file_uploader("Subir logo", type=["png", "jpg"])
@@ -835,7 +940,7 @@ if es_admin:
         with col2:
             st.write("Dolar BCV")
             actual = obtener_precio_dolar()
-            st.write(f"Actual: {actual:.2f} Bs")
+            st.write(f"Precio actual: {actual:.2f} Bs")
             if st.button("Actualizar desde BCV"):
                 nuevo = obtener_dolar_bcv()
                 if nuevo:
@@ -844,10 +949,13 @@ if es_admin:
                         s.commit()
                     st.success(f"Actualizado a {nuevo:.2f} Bs")
                     st.rerun()
+                else:
+                    st.error("No se pudo obtener el precio")
 
 # --- PANEL SUPERIOR ---
 visitas = obtener_visitas()
 precio = obtener_precio_dolar()
+efemerides = "Hoy conmemoramos la historia de Santa Teresa del Tuy"
 
 st.markdown(f"""
 <div class="stats-panel">
@@ -865,6 +973,14 @@ if menu == "Portada":
         st.info(f"**{n['titulo']}**\n\n{n['contenido'][:300]}...")
         st.caption(f"{n['fecha_publicacion']} | {n['categoria']}")
         st.markdown("---")
+    
+    st.markdown("---")
+    st.markdown("### Reflexion del Dia")
+    ref = obtener_reflexion_activa()
+    if ref:
+        st.markdown(f"**{ref['titulo']}**")
+        st.write(ref['contenido'])
+        st.caption(f"{ref['versiculo']}")
 
 elif menu == "Noticias":
     st.title("Noticias")
@@ -881,59 +997,109 @@ elif menu == "Reflexiones":
     if ref:
         st.markdown(f"### {ref['titulo']}")
         st.write(ref['contenido'])
-        st.caption(f"{ref['versiculo']}")
+        st.caption(f"Versiculo: {ref['versiculo']}")
     else:
         st.info("No hay reflexion activa")
 
 elif menu == "Multimedia":
     st.title("Multimedia")
     t1, t2, t3 = st.tabs(["Videos", "Musica", "Radio"])
+    
     with t1:
-        for v in obtener_videos().iterrows():
-            st.video(obtener_youtube_id(v[1]['url']))
+        videos = obtener_videos()
+        if not videos.empty:
+            for _, v in videos.iterrows():
+                st.markdown(f"**{v['titulo']}**")
+                mostrar_video(v['video_data'], v['formato'])
+                st.caption(f"Subido: {v['fecha_subida']}")
+                st.markdown("---")
+        else:
+            st.info("No hay videos disponibles")
+    
     with t2:
-        for m in obtener_musicas().iterrows():
-            st.audio(m[1]['url'])
+        musicas = obtener_musicas()
+        if not musicas.empty:
+            for _, m in musicas.iterrows():
+                st.markdown(f"**{m['titulo']}**")
+                mostrar_musica(m['audio_data'], m['formato'])
+                st.caption(f"Agregado: {m['fecha_subida']}")
+                st.markdown("---")
+        else:
+            st.info("No hay musica disponible")
+    
     with t3:
+        st.markdown("### Radio Online")
         st.audio("https://streaming.listen2myradio.com/example")
 
 elif menu == "Guia Comercial":
     st.title("Guia Comercial")
-    st.markdown("[Ir a la Guia Comercial](https://williantuguiasantateresa.streamlit.app)")
+    st.markdown("""
+    <div style="text-align: center; padding: 40px;">
+        <a href="https://williantuguiasantateresa.streamlit.app" target="_blank">
+            <button style="background: linear-gradient(135deg, #FFD700, #CF142B); padding: 15px 30px; border-radius: 30px; border: none; color: white; font-size: 1.2em;">
+                Ir a la Guia Comercial
+            </button>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
 elif menu == "Ventana del Pasado":
     st.title("Ventana del Pasado")
-    for v in obtener_ventana().iterrows():
-        st.markdown(f"### {v[1]['titulo']}")
-        st.caption(v[1]['fecha_evento'])
-        st.write(v[1]['contenido'])
+    for _, v in obtener_ventana().iterrows():
+        st.markdown(f"### {v['titulo']}")
+        st.caption(v['fecha_evento'])
+        if v['imagen_url']:
+            st.image(v['imagen_url'], width=300)
+        st.write(v['contenido'])
+        st.markdown("---")
 
 elif menu == "Cronicas Reales":
     st.title("Cronicas Reales")
-    for c in obtener_cronicas().iterrows():
-        with st.expander(c[1]['titulo']):
-            st.write(c[1]['contenido'])
+    for _, c in obtener_cronicas().iterrows():
+        with st.expander(f"{c['titulo']} - {c['lugar']}"):
+            st.write(c['contenido'])
+            st.caption(f"Publicado: {c['fecha']}")
 
 elif menu == "Denuncias":
     st.title("Denuncias")
-    with st.form("denuncia"):
-        nombre = st.text_input("Nombre")
-        titulo = st.text_input("Titulo")
-        desc = st.text_area("Descripcion")
-        ubic = st.text_input("Ubicacion")
-        if st.form_submit_button("Enviar"):
-            guardar_denuncia(nombre, titulo, desc, ubic)
-            st.success("Denuncia enviada!")
+    tab1, tab2 = st.tabs(["Hacer Denuncia", "Ver Denuncias"])
+    
+    with tab1:
+        with st.form("denuncia"):
+            nombre = st.text_input("Nombre (opcional)")
+            titulo = st.text_input("Titulo")
+            desc = st.text_area("Descripcion", height=150)
+            ubic = st.text_input("Ubicacion")
+            if st.form_submit_button("Enviar"):
+                if titulo and desc:
+                    guardar_denuncia(nombre, titulo, desc, ubic)
+                    st.success("Denuncia enviada!")
+    
+    with tab2:
+        for _, d in obtener_denuncias().iterrows():
+            st.markdown(f"**{d['titulo']}** - {d['estatus']}")
+            st.caption(d['ubicacion'])
 
 elif menu == "Opiniones":
     st.title("Opiniones")
-    with st.form("opinion"):
-        usuario = st.text_input("Nombre")
-        comentario = st.text_area("Comentario")
-        calif = st.slider("Calificacion", 1, 5, 5)
-        if st.form_submit_button("Enviar"):
-            guardar_opinion(usuario, comentario, calif)
-            st.success("Opinion enviada!")
+    tab1, tab2 = st.tabs(["Dar Opinion", "Ver Opiniones"])
+    
+    with tab1:
+        with st.form("opinion"):
+            usuario = st.text_input("Nombre")
+            comentario = st.text_area("Comentario")
+            calif = st.slider("Calificacion", 1, 5, 5)
+            if st.form_submit_button("Enviar"):
+                if usuario and comentario:
+                    guardar_opinion(usuario, comentario, calif)
+                    st.success("Opinion enviada!")
+    
+    with tab2:
+        for _, op in obtener_opiniones(aprobadas=True).iterrows():
+            estrellas = "⭐" * op['calificacion']
+            st.markdown(f"**{op['usuario']}** {estrellas}")
+            st.write(op['comentario'])
+            st.caption(op['fecha'])
 
 # --- FOOTER ---
 st.markdown("""
