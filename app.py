@@ -134,51 +134,54 @@ def create_tables():
 
 create_tables()
 
-# --- NOTICIAS DIARIAS AUTOMATICAS ---
+# --- NOTICIAS DIARIAS AUTOMATICAS (CORREGIDO) ---
 def cargar_noticias_diarias():
     """Carga noticias predeterminadas si no hay noticias en la base de datos"""
-    noticias_existentes = obtener_noticias()
-    if noticias_existentes.empty:
-        noticias_default = [
-            {
-                "titulo": "🌞 Buenos días Santa Teresa",
-                "categoria": "Nacional",
-                "contenido": "Hoy amanece con un clima cálido en nuestra ciudad. La temperatura rondará los 28°C. ¡Aprovecha el día!",
-                "fecha": datetime.now().strftime("%d/%m/%Y")
-            },
-            {
-                "titulo": "🚧 Reporte de Vialidad",
-                "categoria": "Nacional",
-                "contenido": "Se reporta tránsito fluido en la Autopista Regional del Centro. Se recomienda precaución en el sector de La Yaguara.",
-                "fecha": datetime.now().strftime("%d/%m/%Y")
-            },
-            {
-                "titulo": "⚽ Deportes",
-                "categoria": "Deportes",
-                "contenido": "La selección venezolana se prepara para su próximo encuentro. Los jugadores entrenan a full.",
-                "fecha": datetime.now().strftime("%d/%m/%Y")
-            },
-            {
-                "titulo": "🌍 Internacional",
-                "categoria": "Internacional",
-                "contenido": "Noticias importantes desde el mundo. Mantente informado con Santa Teresa al Día.",
-                "fecha": datetime.now().strftime("%d/%m/%Y")
-            },
-            {
-                "titulo": "📢 Reportaje del Día",
-                "categoria": "Reportajes",
-                "contenido": "Conoce la historia de los emprendedores de Santa Teresa que están transformando nuestra comunidad.",
-                "fecha": datetime.now().strftime("%d/%m/%Y")
-            }
-        ]
-        
-        for n in noticias_default:
+    try:
+        noticias_existentes = obtener_noticias()
+        if noticias_existentes.empty:
+            noticias_default = [
+                {
+                    "titulo": "🌞 Buenos días Santa Teresa",
+                    "categoria": "Nacional",
+                    "contenido": "Hoy amanece con un clima cálido en nuestra ciudad. La temperatura rondará los 28°C. ¡Aprovecha el día!",
+                    "fecha": datetime.now().strftime("%d/%m/%Y")
+                },
+                {
+                    "titulo": "🚧 Reporte de Vialidad",
+                    "categoria": "Nacional",
+                    "contenido": "Se reporta tránsito fluido en la Autopista Regional del Centro. Se recomienda precaución en el sector de La Yaguara.",
+                    "fecha": datetime.now().strftime("%d/%m/%Y")
+                },
+                {
+                    "titulo": "⚽ Deportes",
+                    "categoria": "Deportes",
+                    "contenido": "La selección venezolana se prepara para su próximo encuentro. Los jugadores entrenan a full.",
+                    "fecha": datetime.now().strftime("%d/%m/%Y")
+                },
+                {
+                    "titulo": "🌍 Internacional",
+                    "categoria": "Internacional",
+                    "contenido": "Noticias importantes desde el mundo. Mantente informado con Santa Teresa al Día.",
+                    "fecha": datetime.now().strftime("%d/%m/%Y")
+                },
+                {
+                    "titulo": "📢 Reportaje del Día",
+                    "categoria": "Reportajes",
+                    "contenido": "Conoce la historia de los emprendedores de Santa Teresa que están transformando nuestra comunidad.",
+                    "fecha": datetime.now().strftime("%d/%m/%Y")
+                }
+            ]
+            
             with conn.session as s:
-                s.execute(text("""
-                    INSERT INTO noticias (titulo, categoria, contenido, fecha_publicacion, autor)
-                    VALUES (:t, :c, :cont, :f, 'Santa Teresa al Día')
-                """), {"t": n["titulo"], "c": n["categoria"], "cont": n["contenido"], "f": n["fecha"]})
-        conn.commit()
+                for n in noticias_default:
+                    s.execute(text("""
+                        INSERT INTO noticias (titulo, categoria, contenido, fecha_publicacion, autor)
+                        VALUES (:t, :c, :cont, :f, 'Santa Teresa al Día')
+                    """), {"t": n["titulo"], "c": n["categoria"], "cont": n["contenido"], "f": n["fecha"]})
+                s.commit()
+    except Exception as e:
+        st.warning(f"No se pudieron cargar noticias automáticas: {e}")
 
 # --- FUNCIONES DE UTILIDAD ---
 def actualizar_contador():
@@ -423,7 +426,7 @@ def eliminar_opinion(id_):
     except:
         return False
 
-# --- CARGAR NOTICIAS DIARIAS AL INICIAR ---
+# --- CARGAR NOTICIAS DIARIAS AL INICIAR (CORREGIDO) ---
 cargar_noticias_diarias()
 
 # --- ESTILOS CSS MEJORADOS ---
@@ -453,11 +456,7 @@ st.markdown("""
     letter-spacing: 25px;
 }
 
-/* Contenido principal con fondo semi-transparente */
-.main .element-container, .main .stMarkdown, .main .stAlert {
-    background: transparent !important;
-}
-
+/* Contenido principal */
 .main > div {
     background-color: rgba(0, 0, 0, 0.65);
     border-radius: 20px;
@@ -466,7 +465,7 @@ st.markdown("""
     backdrop-filter: blur(2px);
 }
 
-/* Sidebar con gradiente venezolano */
+/* Sidebar venezolano */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,36,125,0.95) 50%, rgba(207,20,43,0.95) 100%) !important;
     border-right: 3px solid #FFD700;
@@ -482,11 +481,11 @@ h1, h2, h3, h4 {
     text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
 }
 
-p, span, label, .stMarkdown {
+p, span, label {
     color: #FFFFFF !important;
 }
 
-/* Botones venezolanos */
+/* Botones */
 .stButton > button {
     background: linear-gradient(135deg, #FFD700, #CF142B);
     color: white !important;
@@ -511,7 +510,7 @@ input, textarea, .stSelectbox {
     border: 2px solid #FFD700 !important;
 }
 
-/* Tabs venezolanos */
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
     gap: 8px;
     background-color: rgba(0, 0, 0, 0.5);
@@ -532,23 +531,6 @@ input, textarea, .stSelectbox {
     color: white !important;
 }
 
-/* Expander */
-.streamlit-expanderHeader {
-    background-color: rgba(0, 0, 0, 0.6);
-    border-radius: 12px;
-    border-left: 5px solid #FFD700;
-    color: #FFD700 !important;
-}
-
-/* Tarjetas de noticias */
-.noticia-card {
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 15px;
-    padding: 15px;
-    margin-bottom: 20px;
-    border-left: 5px solid #FFD700;
-}
-
 /* Panel de estadisticas */
 .stats-panel {
     background: rgba(0, 0, 0, 0.6);
@@ -557,7 +539,6 @@ input, textarea, .stSelectbox {
     border: 2px solid #FFD700;
     text-align: center;
     margin-bottom: 20px;
-    backdrop-filter: blur(5px);
 }
 
 /* Footer - Placa de Bronce */
@@ -568,7 +549,6 @@ input, textarea, .stSelectbox {
     border-radius: 20px;
     text-align: center;
     margin-top: 50px;
-    box-shadow: inset 2px 2px 8px rgba(255,255,255,0.3), 10px 10px 25px rgba(0,0,0,0.7);
     position: relative;
 }
 
@@ -576,7 +556,6 @@ input, textarea, .stSelectbox {
     color: #ffd700 !important;
     font-family: 'Times New Roman', serif;
     font-weight: bold;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.9);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -586,23 +565,18 @@ if 'visitado' not in st.session_state:
     actualizar_contador()
     st.session_state.visitado = True
 
-# --- ENCABEZADO CON IMAGEN DE SANTA TERESA ---
+# --- ENCABEZADO ---
 st.markdown("""
 <div style="text-align: center; margin-bottom: 20px;">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png" 
-         style="width: 80px; margin-bottom: 10px;">
     <div style="background: linear-gradient(135deg, #FFD700, #00247D, #CF142B); 
-                border-radius: 20px; padding: 5px; margin: 10px auto; width: 80%;">
-        <div style="background: url('https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png') center/cover; 
-                    border-radius: 18px; padding: 20px;">
-            <h1 style="color: white; text-shadow: 3px 3px 6px black;">🌟 Santa Teresa al Día 🌟</h1>
-            <p style="color: white; font-size: 1.2em;">Información, Cultura y Fe para Nuestra Comunidad</p>
-        </div>
+                border-radius: 20px; padding: 20px;">
+        <h1 style="color: white; text-shadow: 3px 3px 6px black;">🌟 Santa Teresa al Día 🌟</h1>
+        <p style="color: white; font-size: 1.2em;">Información, Cultura y Fe para Nuestra Comunidad</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR MEJORADO ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("""
     <div style="text-align: center;">
@@ -740,7 +714,7 @@ if es_admin:
                     st.success("✅ Logo guardado!")
                     st.rerun()
 
-# --- PANEL SUPERIOR CON ESTRELLAS ---
+# --- PANEL SUPERIOR ---
 ahora = datetime.now()
 dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -776,13 +750,9 @@ if menu == "🏠 Portada":
     if not noticias.empty:
         for _, n in noticias.head(4).iterrows():
             with st.container():
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    st.markdown(f"<span style='font-size: 2em;'>📌</span>", unsafe_allow_html=True)
-                with col2:
-                    st.markdown(f"**{n['titulo']}**")
-                    st.caption(f"{n['fecha_publicacion']} | {n['categoria']}")
-                    st.write(n['contenido'][:200] + "..." if len(n['contenido']) > 200 else n['contenido'])
+                st.markdown(f"**📌 {n['titulo']}**")
+                st.caption(f"{n['fecha_publicacion']} | {n['categoria']}")
+                st.write(n['contenido'][:200] + "..." if len(n['contenido']) > 200 else n['contenido'])
                 st.markdown("---")
     else:
         st.info("No hay noticias disponibles")
@@ -790,9 +760,7 @@ if menu == "🏠 Portada":
 elif menu == "📰 Noticias":
     st.title("📰 Noticias")
     
-    col_filtro, _ = st.columns([2, 1])
-    with col_filtro:
-        categoria = st.selectbox("Filtrar por categoría", ["Todas", "Nacional", "Internacional", "Deportes", "Reportajes"])
+    categoria = st.selectbox("Filtrar por categoría", ["Todas", "Nacional", "Internacional", "Deportes", "Reportajes"])
     
     noticias = obtener_noticias(categoria if categoria != "Todas" else None)
     
@@ -956,7 +924,7 @@ elif menu == "💬 Opiniones":
         else:
             st.info("No hay opiniones aún. ¡Sé el primero en opinar!")
 
-# --- FOOTER - PLACA DE BRONCE ---
+# --- FOOTER ---
 st.markdown("""
 <div class="bronze-footer">
     <div style="position: absolute; top: 15px; left: 15px; width: 15px; height: 15px; background: radial-gradient(circle, #999, #333); border-radius: 50%;"></div>
