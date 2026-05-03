@@ -45,13 +45,26 @@ def init_connection():
 
 conn = init_connection()
 
-# --- CREAR TABLAS ---
-def crear_tablas():
+# --- RECONSTRUIR TABLAS ---
+def reconstruir_tablas():
     try:
         with conn.session as s:
-            # Noticias
+            # Eliminar tablas existentes
+            s.execute(text("DROP TABLE IF EXISTS noticias CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS negocios CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS reflexiones CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS cronicas CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS videos CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS musicas CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS denuncias CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS opiniones CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS visitas CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS configuracion CASCADE"))
+            s.commit()
+            
+            # Tabla de noticias
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS noticias (
+            CREATE TABLE noticias (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 categoria TEXT,
@@ -62,9 +75,9 @@ def crear_tablas():
             )
             """))
             
-            # Negocios
+            # Tabla de negocios
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS negocios (
+            CREATE TABLE negocios (
                 id SERIAL PRIMARY KEY,
                 nombre TEXT,
                 categoria TEXT,
@@ -77,9 +90,9 @@ def crear_tablas():
             )
             """))
             
-            # Reflexiones
+            # Tabla de reflexiones
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS reflexiones (
+            CREATE TABLE reflexiones (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 contenido TEXT,
@@ -90,9 +103,9 @@ def crear_tablas():
             )
             """))
             
-            # Cronicas
+            # Tabla de cronicas
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS cronicas (
+            CREATE TABLE cronicas (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 contenido TEXT,
@@ -102,9 +115,9 @@ def crear_tablas():
             )
             """))
             
-            # Videos
+            # Tabla de videos
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS videos (
+            CREATE TABLE videos (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 video_data TEXT,
@@ -113,9 +126,9 @@ def crear_tablas():
             )
             """))
             
-            # Musicas
+            # Tabla de musicas
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS musicas (
+            CREATE TABLE musicas (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 audio_data TEXT,
@@ -124,9 +137,9 @@ def crear_tablas():
             )
             """))
             
-            # Denuncias
+            # Tabla de denuncias
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS denuncias (
+            CREATE TABLE denuncias (
                 id SERIAL PRIMARY KEY,
                 denunciante TEXT,
                 titulo TEXT,
@@ -137,9 +150,9 @@ def crear_tablas():
             )
             """))
             
-            # Opiniones
+            # Tabla de opiniones
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS opiniones (
+            CREATE TABLE opiniones (
                 id SERIAL PRIMARY KEY,
                 usuario TEXT,
                 comentario TEXT,
@@ -149,17 +162,17 @@ def crear_tablas():
             )
             """))
             
-            # Visitas
+            # Tabla de visitas
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS visitas (
+            CREATE TABLE visitas (
                 id INTEGER PRIMARY KEY,
                 conteo INTEGER DEFAULT 0
             )
             """))
             
-            # Configuracion
+            # Tabla de configuracion
             s.execute(text("""
-            CREATE TABLE IF NOT EXISTS configuracion (
+            CREATE TABLE configuracion (
                 id INTEGER PRIMARY KEY,
                 logo TEXT,
                 dolar REAL DEFAULT 65.0
@@ -167,74 +180,69 @@ def crear_tablas():
             """))
             
             # Insertar datos iniciales
-            res = s.execute(text("SELECT COUNT(*) FROM visitas WHERE id = 1")).fetchone()
-            if res[0] == 0:
-                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
-            
-            res2 = s.execute(text("SELECT COUNT(*) FROM configuracion WHERE id = 1")).fetchone()
-            if res2[0] == 0:
-                s.execute(text("INSERT INTO configuracion (id, logo, dolar) VALUES (1, NULL, 65.0)"))
+            s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
+            s.execute(text("INSERT INTO configuracion (id, logo, dolar) VALUES (1, NULL, 65.0)"))
             
             # Insertar cronica inicial
-            res3 = s.execute(text("SELECT COUNT(*) FROM cronicas")).fetchone()
-            if res3[0] == 0:
-                s.execute(text("""
-                    INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar)
-                    VALUES ('Los Valles del Tuy', 'Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.', 'Cronista', '1781', 'Valles del Tuy')
-                """))
+            s.execute(text("""
+                INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar)
+                VALUES ('Los Valles del Tuy', 'Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.', 'Cronista', '1781', 'Valles del Tuy')
+            """))
             
             # Insertar reflexion inicial
-            res4 = s.execute(text("SELECT COUNT(*) FROM reflexiones")).fetchone()
-            if res4[0] == 0:
-                s.execute(text("""
-                    INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                    VALUES ('La Paz de Dios', 'No se angustien por nada; presenten sus peticiones delante de Dios.', 'Filipenses 4:6-7', 'Ministerio', '2026-01-01', TRUE)
-                """))
+            s.execute(text("""
+                INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
+                VALUES ('La Paz de Dios', 'No se angustien por nada; presenten sus peticiones delante de Dios.', 'Filipenses 4:6-7', 'Ministerio', '2026-01-01', TRUE)
+            """))
             
             # Insertar noticias iniciales
-            res5 = s.execute(text("SELECT COUNT(*) FROM noticias")).fetchone()
-            if res5[0] == 0:
-                noticias_iniciales = [
-                    ("Bienvenidos a Santa Teresa al Dia", "Nacional", "Un espacio para mantenernos informados y conectados como comunidad.", "Admin"),
-                    ("Santa Teresa: Tierra de progreso", "Nacional", "Nuestra ciudad sigue creciendo y desarrollándose cada día.", "Admin"),
-                    ("Cultura y Tradición", "Reportajes", "Conoce las tradiciones que nos identifican como tuyeros.", "Admin"),
-                    ("Deportes Locales", "Deportes", "Los equipos locales se preparan para los proximos torneos.", "Admin"),
-                    ("Eventos Culturales", "Reportajes", "Pronto nuevos eventos culturales en nuestra comunidad.", "Admin")
-                ]
-                fecha_actual = datetime.now().strftime("%d/%m/%Y")
-                for n in noticias_iniciales:
-                    s.execute(text("INSERT INTO noticias (titulo, categoria, contenido, fecha, autor) VALUES (:t, :c, :cont, :f, :a)"),
-                             {"t": n[0], "c": n[1], "cont": n[2], "f": fecha_actual, "a": n[3]})
+            fecha_actual = datetime.now().strftime("%d/%m/%Y")
+            noticias_iniciales = [
+                ("Bienvenidos a Santa Teresa al Dia", "Nacional", "Un espacio para mantenernos informados y conectados como comunidad.", fecha_actual, "Admin"),
+                ("Santa Teresa: Tierra de progreso", "Nacional", "Nuestra ciudad sigue creciendo y desarrollándose cada día.", fecha_actual, "Admin"),
+                ("Cultura y Tradición", "Reportajes", "Conoce las tradiciones que nos identifican como tuyeros.", fecha_actual, "Admin"),
+                ("Deportes Locales", "Deportes", "Los equipos locales se preparan para los proximos torneos.", fecha_actual, "Admin"),
+                ("Eventos Culturales", "Reportajes", "Pronto nuevos eventos culturales en nuestra comunidad.", fecha_actual, "Admin")
+            ]
+            for n in noticias_iniciales:
+                s.execute(text("INSERT INTO noticias (titulo, categoria, contenido, fecha, autor) VALUES (:t, :c, :cont, :f, :a)"),
+                         {"t": n[0], "c": n[1], "cont": n[2], "f": n[3], "a": n[4]})
             
             s.commit()
             return True
     except Exception as e:
-        st.error(f"Error al crear tablas: {e}")
+        st.error(f"Error al reconstruir tablas: {e}")
         return False
 
-crear_tablas()
+reconstruir_tablas()
 
-# --- FUNCION DOLAR BCV ---
-def obtener_dolar():
+# --- FUNCION DOLAR BCV (ACTUALIZACION AUTOMATICA) ---
+def obtener_dolar_bcv():
+    """Obtiene el precio del dolar desde la API del BCV"""
     try:
+        # API confiable de dolar Venezuela
         response = requests.get("https://ve.dolarapi.com/v1/dolares", timeout=5)
         if response.status_code == 200:
             data = response.json()
             for item in data:
                 if item.get("nombre") == "BCV" and "precio" in item:
                     return float(item["precio"])
+        return None
     except:
-        pass
-    return 65.0
+        return None
 
-def actualizar_dolar():
+def actualizar_dolar_automatico():
+    """Actualiza el dolar automaticamente cada vez que se inicia la app"""
     try:
-        precio = obtener_dolar()
-        with conn.session as s:
-            s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": precio})
-            s.commit()
+        nuevo_precio = obtener_dolar_bcv()
+        if nuevo_precio and nuevo_precio > 0:
+            with conn.session as s:
+                s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_precio})
+                s.commit()
+            return nuevo_precio
+        return None
     except:
-        pass
+        return None
 
 def get_dolar():
     try:
@@ -244,6 +252,11 @@ def get_dolar():
         return 65.0
     except:
         return 65.0
+
+# --- ACTUALIZAR DOLAR AUTOMATICAMENTE AL INICIAR ---
+dolar_actual = actualizar_dolar_automatico()
+if dolar_actual is None:
+    dolar_actual = get_dolar()
 
 # --- FUNCIONES GENERALES ---
 def actualizar_visitas():
@@ -602,9 +615,6 @@ def delete_opinion(id_):
     except:
         return False
 
-# --- ACTUALIZAR DOLAR AL INICIAR ---
-actualizar_dolar()
-
 # --- CONTADOR DE VISITAS ---
 if 'visitante_contado' not in st.session_state:
     actualizar_visitas()
@@ -691,7 +701,13 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================
-# SIDEBAR
+# DOLAR ACTUALIZADO (EL USUARIO LO VE)
+# ============================================
+visitas = get_visitas()
+dolar = get_dolar()
+
+# ============================================
+# SIDEBAR (EL USUARIO VE SOLO EL MENU)
 # ============================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png", width=150)
@@ -704,37 +720,19 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Panel de Administracion
+    # Panel de Administracion - SOLO EL ADMIN LO VE
     es_admin = False
-    with st.expander("🔐 Panel de Administracion", expanded=False):
-        clave = st.text_input("Clave de Acceso:", type="password")
+    with st.expander("🔐 Administrador", expanded=False):
+        clave = st.text_input("Clave:", type="password")
         if clave == "Juan*316*" or clave == "1966":
             es_admin = True
             st.success("✅ Acceso concedido")
         elif clave:
             st.error("❌ Clave incorrecta")
-    
-    if es_admin:
-        st.markdown("---")
-        st.markdown("### 🛠️ Opciones")
-        admin_option = st.radio("Seleccionar", [
-            "📝 Noticias",
-            "🏪 Negocios",
-            "🙏 Reflexiones",
-            "📜 Cronicas",
-            "🎬 Videos",
-            "🎵 Musica",
-            "⚠️ Denuncias",
-            "💬 Opiniones",
-            "⚙️ Configuracion"
-        ])
 
 # ============================================
-# PANEL SUPERIOR
+# PANEL SUPERIOR (EL USUARIO LO VE)
 # ============================================
-visitas = get_visitas()
-dolar = get_dolar()
-
 st.markdown(f"""
 <div class="stats-panel">
     <span style="color: #FFD700;">⭐ {dias[ahora.weekday()]}, {ahora.day} de {meses[ahora.month-1]} de {ahora.year} ⭐</span><br>
@@ -744,7 +742,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================
-# CONTENIDO PRINCIPAL
+# CONTENIDO PRINCIPAL (EL USUARIO LO VE)
 # ============================================
 
 # --- PORTADA ---
@@ -952,11 +950,23 @@ elif menu == "💬 Opiniones":
             st.info("No hay opiniones aún")
 
 # ============================================
-# ADMINISTRACION
+# PANEL DE ADMINISTRACION (SOLO EL ADMIN LO VE)
 # ============================================
 if es_admin:
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"### Gestionando: {admin_option}")
+    st.sidebar.markdown("### 🛠️ Panel de Control")
+    
+    admin_option = st.sidebar.radio("Seleccionar", [
+        "📝 Noticias",
+        "🏪 Negocios",
+        "🙏 Reflexiones",
+        "📜 Cronicas",
+        "🎬 Videos",
+        "🎵 Musica",
+        "⚠️ Denuncias",
+        "💬 Opiniones",
+        "⚙️ Configuracion"
+    ])
     
     # --- ADMIN: NOTICIAS ---
     if admin_option == "📝 Noticias":
@@ -1224,13 +1234,16 @@ if es_admin:
         with col2:
             st.subheader("💰 Dólar BCV")
             st.write(f"Precio actual: {dolar:.2f} Bs/USD")
-            if st.button("🔄 Actualizar desde BCV"):
-                nuevo_dolar = obtener_dolar()
-                with conn.session as s:
-                    s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_dolar})
-                    s.commit()
-                st.success(f"Dólar actualizado a {nuevo_dolar:.2f} Bs")
-                st.rerun()
+            if st.button("🔄 Actualizar manualmente"):
+                nuevo_dolar = obtener_dolar_bcv()
+                if nuevo_dolar:
+                    with conn.session as s:
+                        s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_dolar})
+                        s.commit()
+                    st.success(f"Dólar actualizado a {nuevo_dolar:.2f} Bs")
+                    st.rerun()
+                else:
+                    st.error("No se pudo obtener el precio")
 
 # --- FOOTER ---
 st.markdown("""
