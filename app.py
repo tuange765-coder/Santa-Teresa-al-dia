@@ -45,13 +45,14 @@ def init_connection():
 
 conn = init_connection()
 
-# --- FUNCION PARA RECREAR TABLAS CORRECTAMENTE ---
+# --- FUNCION PARA RECREAR TABLAS ---
 def recreate_tables():
     try:
         with conn.session as s:
-            # Eliminar tablas si existen (para recrearlas correctamente)
-            s.execute(text("DROP TABLE IF EXISTS reflexiones CASCADE"))
+            # Eliminar tablas existentes
             s.execute(text("DROP TABLE IF EXISTS noticias CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS negocios CASCADE"))
+            s.execute(text("DROP TABLE IF EXISTS reflexiones CASCADE"))
             s.execute(text("DROP TABLE IF EXISTS ventana_pasado CASCADE"))
             s.execute(text("DROP TABLE IF EXISTS cronicas_reales CASCADE"))
             s.execute(text("DROP TABLE IF EXISTS videos CASCADE"))
@@ -62,7 +63,7 @@ def recreate_tables():
             s.execute(text("DROP TABLE IF EXISTS configuracion CASCADE"))
             s.commit()
             
-            # Crear tabla de noticias
+            # Tabla de noticias
             s.execute(text("""
             CREATE TABLE noticias (
                 id SERIAL PRIMARY KEY,
@@ -76,7 +77,22 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de reflexiones CON VERSICULO
+            # Tabla de negocios (Donde ir / Donde comprar)
+            s.execute(text("""
+            CREATE TABLE negocios (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(500),
+                categoria VARCHAR(200),
+                reseña TEXT,
+                imagen_url TEXT,
+                direccion VARCHAR(500),
+                telefono VARCHAR(100),
+                horario VARCHAR(200),
+                fecha_agregado VARCHAR(50)
+            )
+            """))
+            
+            # Tabla de reflexiones
             s.execute(text("""
             CREATE TABLE reflexiones (
                 id SERIAL PRIMARY KEY,
@@ -89,7 +105,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de ventana del pasado
+            # Tabla de ventana del pasado
             s.execute(text("""
             CREATE TABLE ventana_pasado (
                 id SERIAL PRIMARY KEY,
@@ -101,7 +117,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de cronicas reales
+            # Tabla de cronicas reales
             s.execute(text("""
             CREATE TABLE cronicas_reales (
                 id SERIAL PRIMARY KEY,
@@ -113,7 +129,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de videos (con archivo BLOB)
+            # Tabla de videos
             s.execute(text("""
             CREATE TABLE videos (
                 id SERIAL PRIMARY KEY,
@@ -124,7 +140,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de musicas (con archivo BLOB)
+            # Tabla de musicas
             s.execute(text("""
             CREATE TABLE musicas (
                 id SERIAL PRIMARY KEY,
@@ -135,7 +151,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de denuncias
+            # Tabla de denuncias
             s.execute(text("""
             CREATE TABLE denuncias (
                 id SERIAL PRIMARY KEY,
@@ -148,7 +164,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de opiniones
+            # Tabla de opiniones
             s.execute(text("""
             CREATE TABLE opiniones (
                 id SERIAL PRIMARY KEY,
@@ -160,7 +176,7 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de visitas
+            # Tabla de visitas
             s.execute(text("""
             CREATE TABLE visitas (
                 id INTEGER PRIMARY KEY,
@@ -168,49 +184,79 @@ def recreate_tables():
             )
             """))
             
-            # Crear tabla de configuracion
+            # Tabla de configuracion
             s.execute(text("""
             CREATE TABLE configuracion (
                 id INTEGER PRIMARY KEY,
                 logo_data TEXT,
                 dolar_bcv REAL DEFAULT 60.0,
-                ultima_actualizacion_dolar VARCHAR(50)
+                ultima_actualizacion_dolar VARCHAR(50),
+                ultimas_noticias_fecha VARCHAR(50)
             )
             """))
             
-            # Insertar visita inicial
+            # Insertar datos iniciales
             s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
+            s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv, ultimas_noticias_fecha) VALUES (1, NULL, 60.0, NULL)"))
             
-            # Insertar configuracion inicial
-            s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv) VALUES (1, NULL, 60.0)"))
-            
-            # Insertar cronica historica de los Valles del Tuy
+            # Insertar cronica historica
             s.execute(text("""
                 INSERT INTO cronicas_reales (titulo, contenido, autor, fecha, lugar)
-                VALUES ('Los Valles del Tuy: Cuna de la Independencia', 
-                'Los Valles del Tuy, tierra de hombres y mujeres valientes, fue escenario de importantes batallas durante la Guerra de Independencia. En 1814, el Libertador Simon Bolivar acampo en estas tierras antes de la Batalla de La Victoria. La valentia de los tuyeros quedo grabada en la historia patria.\\n\\nEl 15 de septiembre de 1781, el Obispo Mariano Marti fundo oficialmente Santa Teresa del Tuy. Desde entonces, este valle fertil ha sido testigo de incontables historias de esfuerzo, fe y progreso.',
-                'Cronista Oficial', '2026', 'Valles del Tuy')
+                VALUES ('Los Valles del Tuy', 'Los Valles del Tuy, tierra de hombres y mujeres valientes, fue escenario de importantes batallas durante la Guerra de Independencia.', 'Cronista', '2026', 'Valles del Tuy')
             """))
             
-            # Insertar reflexion cristiana inicial CON VERSICULO
+            # Insertar reflexion inicial
             s.execute(text("""
                 INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                VALUES ('La Paz que Sobrepasa Todo Entendimiento',
-                'No se angustien por nada; mas bien, presenten sus peticiones delante de Dios. La paz de Dios, que sobrepasa todo entendimiento, cuidara sus corazones y sus pensamientos.',
-                'Filipenses 4:6-7',
-                'Ministerio Cristiano', 
-                '2026-01-01', 
-                TRUE)
+                VALUES ('La Paz de Dios', 'No se angustien por nada; presenten sus peticiones delante de Dios.', 'Filipenses 4:6-7', 'Ministerio', '2026-01-01', TRUE)
             """))
             
             s.commit()
-            st.success("Tablas recreadas correctamente")
+            st.success("Tablas creadas correctamente")
             
     except Exception as e:
-        st.error(f"Error al recrear tablas: {str(e)}")
+        st.error(f"Error al crear tablas: {str(e)}")
 
-# Ejecutar recreacion de tablas
 recreate_tables()
+
+# --- NOTICIAS AUTOMATICAS DIARIAS ---
+def cargar_noticias_automaticas():
+    """Carga noticias automaticamente si es un nuevo dia"""
+    try:
+        ahora = get_fecha_hora_venezuela()
+        fecha_hoy = ahora.strftime("%d/%m/%Y")
+        
+        # Verificar si ya se cargaron noticias hoy
+        res = conn.query("SELECT ultimas_noticias_fecha FROM configuracion WHERE id = 1", ttl=0)
+        if not res.empty and res.iloc[0,0] == fecha_hoy:
+            return  # Ya cargadas hoy
+        
+        # Verificar si hay noticias existentes
+        noticias_existentes = conn.query("SELECT COUNT(*) FROM noticias", ttl=0)
+        if noticias_existentes.iloc[0,0] > 0:
+            return  # Ya hay noticias
+        
+        # Noticias del dia
+        noticias_diarias = [
+            {"titulo": f"Buenos dias Santa Teresa - {fecha_hoy}", "categoria": "Nacional", "contenido": "Que tengas un excelente dia. Mantente informado con Santa Teresa al Dia.", "fuente": "Santa Teresa al Dia"},
+            {"titulo": "Reporte del Clima", "categoria": "Nacional", "contenido": "Se espera un dia soleado con temperaturas agradables en los Valles del Tuy.", "fuente": "Clima Venezuela"},
+            {"titulo": "Resumen Deportivo", "categoria": "Deportes", "contenido": "La Vinotinto se prepara para sus proximos compromisos internacionales.", "fuente": "Deportes Venezuela"},
+            {"titulo": "Panorama Internacional", "categoria": "Internacional", "contenido": "Las noticias mas importantes del mundo en un solo lugar.", "fuente": "Internacional Press"},
+            {"titulo": "Reportaje Especial", "categoria": "Reportajes", "contenido": "Historias de exito de emprendedores locales que transforman Santa Teresa.", "fuente": "Reportajes Locales"}
+        ]
+        
+        with conn.session as s:
+            for n in noticias_diarias:
+                s.execute(text("""
+                    INSERT INTO noticias (titulo, categoria, contenido, fecha_publicacion, autor, fuente)
+                    VALUES (:t, :c, :cont, :f, 'Sistema Automatico', :fuente)
+                """), {"t": n["titulo"], "c": n["categoria"], "cont": n["contenido"], 
+                       "f": fecha_hoy, "fuente": n["fuente"]})
+            s.execute(text("UPDATE configuracion SET ultimas_noticias_fecha = :f WHERE id = 1"), {"f": fecha_hoy})
+            s.commit()
+            
+    except Exception as e:
+        pass
 
 # --- FUNCION DOLAR BCV ---
 def obtener_dolar_bcv():
@@ -220,7 +266,6 @@ def obtener_dolar_bcv():
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, dict):
-                # Buscar el precio del dolar
                 for key, value in data.items():
                     if isinstance(value, dict) and "price" in value:
                         return float(value["price"])
@@ -315,6 +360,28 @@ def audio_a_base64(file):
             return None
     return None
 
+def mostrar_video(video_data, formato):
+    try:
+        video_bytes = base64.b64decode(video_data)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp_file:
+            tmp_file.write(video_bytes)
+            tmp_path = tmp_file.name
+        st.video(tmp_path)
+        os.unlink(tmp_path)
+    except:
+        st.error("Error al cargar el video")
+
+def mostrar_musica(audio_data, formato):
+    try:
+        audio_bytes = base64.b64decode(audio_data)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp_file:
+            tmp_file.write(audio_bytes)
+            tmp_path = tmp_file.name
+        st.audio(tmp_path)
+        os.unlink(tmp_path)
+    except:
+        st.error("Error al cargar el audio")
+
 # --- FUNCIONES NOTICIAS ---
 def publicar_noticia(titulo, categoria, contenido, imagen, fuente):
     try:
@@ -350,7 +417,42 @@ def eliminar_noticia(id_):
     except:
         return False
 
-# --- FUNCIONES VIDEOS (subida desde PC) ---
+# --- FUNCIONES NEGOCIOS (Donde ir / Donde comprar) ---
+def agregar_negocio(nombre, categoria, reseña, direccion, telefono, horario, imagen):
+    try:
+        img_url = imagen_a_base64(imagen) if imagen else None
+        ahora = get_fecha_hora_venezuela()
+        with conn.session as s:
+            s.execute(text("""
+                INSERT INTO negocios (nombre, categoria, reseña, imagen_url, direccion, telefono, horario, fecha_agregado)
+                VALUES (:n, :c, :r, :i, :d, :t, :h, :f)
+            """), {"n": nombre, "c": categoria, "r": reseña, "i": img_url, 
+                   "d": direccion, "t": telefono, "h": horario, "f": ahora.strftime("%d/%m/%Y")})
+            s.commit()
+        return True
+    except:
+        return False
+
+def obtener_negocios(categoria=None):
+    try:
+        if categoria and categoria != "Todos":
+            return conn.query("SELECT * FROM negocios WHERE categoria = :cat ORDER BY id DESC", 
+                            params={"cat": categoria}, ttl=0)
+        else:
+            return conn.query("SELECT * FROM negocios ORDER BY id DESC", ttl=0)
+    except:
+        return pd.DataFrame()
+
+def eliminar_negocio(id_):
+    try:
+        with conn.session as s:
+            s.execute(text("DELETE FROM negocios WHERE id = :id"), {"id": id_})
+            s.commit()
+        return True
+    except:
+        return False
+
+# --- FUNCIONES VIDEOS ---
 def guardar_video(titulo, archivo_video):
     try:
         ahora = get_fecha_hora_venezuela()
@@ -381,22 +483,7 @@ def eliminar_video(id_):
     except:
         return False
 
-def mostrar_video(video_data, formato):
-    try:
-        # Decodificar base64 a bytes
-        video_bytes = base64.b64decode(video_data)
-        # Guardar temporalmente
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp_file:
-            tmp_file.write(video_bytes)
-            tmp_path = tmp_file.name
-        # Mostrar video
-        st.video(tmp_path)
-        # Limpiar archivo temporal
-        os.unlink(tmp_path)
-    except:
-        st.error("Error al cargar el video")
-
-# --- FUNCIONES MUSICA (subida desde PC) ---
+# --- FUNCIONES MUSICA ---
 def guardar_musica(titulo, archivo_audio):
     try:
         ahora = get_fecha_hora_venezuela()
@@ -426,21 +513,6 @@ def eliminar_musica(id_):
         return True
     except:
         return False
-
-def mostrar_musica(audio_data, formato):
-    try:
-        # Decodificar base64 a bytes
-        audio_bytes = base64.b64decode(audio_data)
-        # Guardar temporalmente
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
-        # Mostrar audio
-        st.audio(tmp_path)
-        # Limpiar archivo temporal
-        os.unlink(tmp_path)
-    except:
-        st.error("Error al cargar el audio")
 
 # --- FUNCIONES REFLEXIONES ---
 def guardar_reflexion(titulo, contenido, versiculo):
@@ -619,7 +691,8 @@ def eliminar_opinion(id_):
     except:
         return False
 
-# --- ACTUALIZAR DOLAR ---
+# --- CARGAR NOTICIAS AUTOMATICAS ---
+cargar_noticias_automaticas()
 actualizar_dolar_auto()
 
 # --- CONTADOR VISITAS ---
@@ -630,64 +703,18 @@ if 'visitado' not in st.session_state:
 # --- ESTILOS CSS ---
 st.markdown("""
 <style>
-.stApp {
-    background: linear-gradient(180deg, #FFD700 0%, #00247D 50%, #CF142B 100%);
-    background-attachment: fixed;
-}
-.main > div {
-    background-color: rgba(0, 0, 0, 0.65);
-    border-radius: 20px;
-    padding: 20px;
-    margin: 10px 0;
-}
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,36,125,0.95), rgba(207,20,43,0.95)) !important;
-    border-right: 3px solid #FFD700;
-}
-[data-testid="stSidebar"] * {
-    color: #FFFFFF !important;
-}
-h1, h2, h3, h4 {
-    color: #FFD700 !important;
-}
-p, span, label {
-    color: #FFFFFF !important;
-}
-.stButton > button {
-    background: linear-gradient(135deg, #FFD700, #CF142B);
-    color: white !important;
-    border: none;
-    font-weight: bold;
-    border-radius: 25px;
-}
-.stButton > button:hover {
-    transform: scale(1.02);
-}
-input, textarea, .stSelectbox {
-    background-color: rgba(255, 255, 255, 0.95) !important;
-    color: #000000 !important;
-    border-radius: 12px;
-    border: 2px solid #FFD700 !important;
-}
-.stats-panel {
-    background: rgba(0, 0, 0, 0.6);
-    padding: 15px;
-    border-radius: 20px;
-    border: 2px solid #FFD700;
-    text-align: center;
-    margin-bottom: 20px;
-}
-.bronze-footer {
-    background: linear-gradient(145deg, #8c6a31, #5d431a);
-    border: 5px solid #d4af37;
-    padding: 25px;
-    border-radius: 20px;
-    text-align: center;
-    margin-top: 50px;
-}
-.bronze-footer p {
-    color: #ffd700 !important;
-}
+.stApp { background: linear-gradient(180deg, #FFD700 0%, #00247D 50%, #CF142B 100%); background-attachment: fixed; }
+.main > div { background-color: rgba(0,0,0,0.65); border-radius: 20px; padding: 20px; margin: 10px 0; }
+[data-testid="stSidebar"] { background: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,36,125,0.95), rgba(207,20,43,0.95)) !important; border-right: 3px solid #FFD700; }
+[data-testid="stSidebar"] * { color: #FFFFFF !important; }
+h1, h2, h3, h4 { color: #FFD700 !important; }
+p, span, label { color: #FFFFFF !important; }
+.stButton > button { background: linear-gradient(135deg, #FFD700, #CF142B); color: white !important; border: none; font-weight: bold; border-radius: 25px; }
+.stButton > button:hover { transform: scale(1.02); }
+input, textarea, .stSelectbox { background-color: rgba(255,255,255,0.95) !important; color: #000000 !important; border-radius: 12px; border: 2px solid #FFD700 !important; }
+.stats-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 20px; border: 2px solid #FFD700; text-align: center; margin-bottom: 20px; }
+.bronze-footer { background: linear-gradient(145deg, #8c6a31, #5d431a); border: 5px solid #d4af37; padding: 25px; border-radius: 20px; text-align: center; margin-top: 50px; }
+.bronze-footer p { color: #ffd700 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -723,9 +750,8 @@ with st.sidebar:
     st.markdown("---")
     
     menu = st.radio("Menu Principal", [
-        "Portada", "Noticias", "Reflexiones", "Multimedia",
-        "Guia Comercial", "Ventana del Pasado", "Cronicas Reales",
-        "Denuncias", "Opiniones"
+        "Portada", "Noticias", "Donde ir - Donde comprar", "Reflexiones", "Multimedia",
+        "Ventana del Pasado", "Cronicas Reales", "Denuncias", "Opiniones"
     ], index=0)
     
     st.markdown("---")
@@ -745,10 +771,11 @@ if es_admin:
     st.sidebar.markdown("### Panel de Control")
     
     admin_tab = st.sidebar.radio("Accion", [
-        "Noticias", "Videos", "Musica", "Reflexiones",
-        "Ventana Pasado", "Cronicas", "Denuncias", "Opiniones", "Configurar"
+        "Noticias", "Donde ir - Donde comprar", "Videos", "Musica", 
+        "Reflexiones", "Ventana Pasado", "Cronicas", "Denuncias", "Opiniones", "Configurar"
     ])
     
+    # Admin: Noticias
     if admin_tab == "Noticias":
         st.write("### Publicar Noticia")
         with st.form("form_noticia"):
@@ -774,11 +801,43 @@ if es_admin:
                     eliminar_noticia(n['id'])
                     st.rerun()
     
+    # Admin: Donde ir - Donde comprar (Negocios)
+    elif admin_tab == "Donde ir - Donde comprar":
+        st.write("### Agregar Negocio o Lugar")
+        with st.form("form_negocio"):
+            nombre = st.text_input("Nombre del Negocio/Lugar")
+            categoria_neg = st.text_input("Categoria", placeholder="Ej: Restaurante, Tienda, Parque, Iglesia")
+            reseña = st.text_area("Reseña / Descripcion", height=100)
+            direccion = st.text_input("Direccion")
+            telefono = st.text_input("Telefono", placeholder="Ej: 0412-1234567")
+            horario = st.text_input("Horario", placeholder="Ej: Lunes a Sabado 8am-6pm")
+            imagen_neg = st.file_uploader("Foto del lugar", type=["jpg", "png", "jpeg"])
+            if st.form_submit_button("Agregar Negocio"):
+                if nombre and reseña:
+                    if agregar_negocio(nombre, categoria_neg, reseña, direccion, telefono, horario, imagen_neg):
+                        st.success("Negocio agregado!")
+                        st.rerun()
+        
+        st.markdown("---")
+        st.write("### Negocios Existentes")
+        for _, n in obtener_negocios().iterrows():
+            with st.expander(f"{n['nombre']} - {n['categoria']}"):
+                if n['imagen_url']:
+                    st.image(n['imagen_url'], width=200)
+                st.write(f"**Reseña:** {n['reseña']}")
+                st.write(f"**Direccion:** {n['direccion']}")
+                st.write(f"**Telefono:** {n['telefono']}")
+                st.write(f"**Horario:** {n['horario']}")
+                if st.button("Eliminar", key=f"del_neg_{n['id']}"):
+                    eliminar_negocio(n['id'])
+                    st.rerun()
+    
+    # Admin: Videos
     elif admin_tab == "Videos":
         st.write("### Subir Video desde PC")
         with st.form("form_video"):
             titulo = st.text_input("Titulo del Video")
-            archivo_video = st.file_uploader("Seleccionar video (MP4, AVI, MOV)", type=["mp4", "avi", "mov", "mkv"])
+            archivo_video = st.file_uploader("Seleccionar video (MP4, AVI, MOV, MKV)", type=["mp4", "avi", "mov", "mkv"])
             if st.form_submit_button("Subir Video"):
                 if titulo and archivo_video:
                     if guardar_video(titulo, archivo_video):
@@ -794,11 +853,12 @@ if es_admin:
                     eliminar_video(v['id'])
                     st.rerun()
     
+    # Admin: Musica
     elif admin_tab == "Musica":
         st.write("### Subir Musica desde PC")
         with st.form("form_musica"):
             titulo = st.text_input("Titulo de la Cancion")
-            archivo_audio = st.file_uploader("Seleccionar audio (MP3, WAV)", type=["mp3", "wav", "ogg"])
+            archivo_audio = st.file_uploader("Seleccionar audio (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
             if st.form_submit_button("Subir Musica"):
                 if titulo and archivo_audio:
                     if guardar_musica(titulo, archivo_audio):
@@ -814,6 +874,7 @@ if es_admin:
                     eliminar_musica(m['id'])
                     st.rerun()
     
+    # Admin: Reflexiones
     elif admin_tab == "Reflexiones":
         st.write("### Nueva Reflexion")
         with st.form("form_reflexion"):
@@ -836,6 +897,7 @@ if es_admin:
                     eliminar_reflexion(r['id'])
                     st.rerun()
     
+    # Admin: Ventana Pasado
     elif admin_tab == "Ventana Pasado":
         st.write("### Nuevo Registro Historico")
         with st.form("form_ventana"):
@@ -860,6 +922,7 @@ if es_admin:
                     eliminar_ventana(v['id'])
                     st.rerun()
     
+    # Admin: Cronicas
     elif admin_tab == "Cronicas":
         st.write("### Nueva Cronica")
         with st.form("form_cronica"):
@@ -881,6 +944,7 @@ if es_admin:
                     eliminar_cronica(c['id'])
                     st.rerun()
     
+    # Admin: Denuncias
     elif admin_tab == "Denuncias":
         st.write("### Gestion Denuncias")
         for _, d in obtener_denuncias().iterrows():
@@ -896,9 +960,9 @@ if es_admin:
                     eliminar_denuncia(d['id'])
                     st.rerun()
     
+    # Admin: Opiniones
     elif admin_tab == "Opiniones":
-        st.write("### Gestion Opiniones")
-        st.write("#### Opiniones Pendientes")
+        st.write("### Opiniones Pendientes")
         for _, op in obtener_opiniones(aprobadas=False).iterrows():
             if not op['aprobada']:
                 with st.expander(f"{op['usuario']}"):
@@ -912,16 +976,8 @@ if es_admin:
                         if st.button("Eliminar", key=f"del_op_{op['id']}"):
                             eliminar_opinion(op['id'])
                             st.rerun()
-        
-        st.markdown("---")
-        st.write("#### Todas las Opiniones")
-        for _, op in obtener_opiniones(aprobadas=False).iterrows():
-            with st.expander(f"{op['usuario']} - {'Aprobada' if op['aprobada'] else 'Pendiente'}"):
-                st.write(op['comentario'])
-                if st.button("Eliminar", key=f"del_all_{op['id']}"):
-                    eliminar_opinion(op['id'])
-                    st.rerun()
     
+    # Admin: Configurar
     elif admin_tab == "Configurar":
         st.write("### Configuracion")
         
@@ -991,6 +1047,40 @@ elif menu == "Noticias":
         st.write(n['contenido'])
         st.markdown("---")
 
+elif menu == "Donde ir - Donde comprar":
+    st.title("📍 Donde ir - Donde comprar")
+    st.markdown("*Descubre los mejores lugares y negocios de Santa Teresa*")
+    
+    categorias_neg = ["Todos"] + list(set([n[1] for n in obtener_negocios()[['categoria']].values] if not obtener_negocios().empty else []))
+    if len(categorias_neg) > 1:
+        filtro_cat = st.selectbox("Filtrar por categoria", categorias_neg)
+    else:
+        filtro_cat = "Todos"
+    
+    negocios = obtener_negocios(filtro_cat if filtro_cat != "Todos" else None)
+    if not negocios.empty:
+        for _, n in negocios.iterrows():
+            with st.container():
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    if n['imagen_url']:
+                        st.image(n['imagen_url'], use_container_width=True)
+                    else:
+                        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png", use_container_width=True)
+                with col2:
+                    st.markdown(f"### 🏪 {n['nombre']}")
+                    st.caption(f"📌 {n['categoria']}")
+                    st.write(f"**Reseña:** {n['reseña']}")
+                    if n['direccion']:
+                        st.write(f"📍 {n['direccion']}")
+                    if n['telefono']:
+                        st.write(f"📞 {n['telefono']}")
+                    if n['horario']:
+                        st.write(f"⏰ {n['horario']}")
+                st.markdown("---")
+    else:
+        st.info("No hay negocios agregados aun")
+
 elif menu == "Reflexiones":
     st.title("Reflexiones")
     ref = obtener_reflexion_activa()
@@ -1014,7 +1104,7 @@ elif menu == "Multimedia":
                 st.caption(f"Subido: {v['fecha_subida']}")
                 st.markdown("---")
         else:
-            st.info("No hay videos disponibles")
+            st.info("No hay videos disponibles. Sube videos desde el panel de administrador.")
     
     with t2:
         musicas = obtener_musicas()
@@ -1025,23 +1115,11 @@ elif menu == "Multimedia":
                 st.caption(f"Agregado: {m['fecha_subida']}")
                 st.markdown("---")
         else:
-            st.info("No hay musica disponible")
+            st.info("No hay musica disponible. Sube musica desde el panel de administrador.")
     
     with t3:
         st.markdown("### Radio Online")
-        st.audio("https://streaming.listen2myradio.com/example")
-
-elif menu == "Guia Comercial":
-    st.title("Guia Comercial")
-    st.markdown("""
-    <div style="text-align: center; padding: 40px;">
-        <a href="https://williantuguiasantateresa.streamlit.app" target="_blank">
-            <button style="background: linear-gradient(135deg, #FFD700, #CF142B); padding: 15px 30px; border-radius: 30px; border: none; color: white; font-size: 1.2em;">
-                Ir a la Guia Comercial
-            </button>
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
+        st.audio("https://streaming.radiosenlinea.net/9090/stream")
 
 elif menu == "Ventana del Pasado":
     st.title("Ventana del Pasado")
