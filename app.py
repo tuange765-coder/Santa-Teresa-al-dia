@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -49,92 +48,104 @@ def init_connection():
 
 conn = init_connection()
 
-# --- CREACION DE TABLAS ---
+# --- CREACION DE TABLAS (CORREGIDA) ---
 def create_tables():
     try:
         with conn.session as s:
+            # Eliminar tablas existentes para recrearlas correctamente (solo si es necesario)
+            # Esta sección se ejecuta solo si hay error
+            pass
+            
+            # Tabla de noticias
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS noticias (
                 id SERIAL PRIMARY KEY,
-                titulo VARCHAR(255),
-                categoria VARCHAR(50),
+                titulo VARCHAR(500),
+                categoria VARCHAR(100),
                 contenido TEXT,
                 imagen_url TEXT,
                 fecha_publicacion VARCHAR(50),
                 fecha_completa TIMESTAMP,
-                autor VARCHAR(100),
-                fuente VARCHAR(255)
+                autor VARCHAR(200),
+                fuente VARCHAR(300)
             )
             """))
             
+            # Tabla de reflexiones con versiculo
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS reflexiones (
                 id SERIAL PRIMARY KEY,
-                titulo VARCHAR(255),
+                titulo VARCHAR(500),
                 contenido TEXT,
-                versiculo VARCHAR(255),
-                autor VARCHAR(100),
+                versiculo VARCHAR(300),
+                autor VARCHAR(200),
                 fecha VARCHAR(50),
                 activo BOOLEAN DEFAULT TRUE
             )
             """))
             
+            # Tabla de ventana del pasado
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS ventana_pasado (
                 id SERIAL PRIMARY KEY,
-                titulo VARCHAR(255),
+                titulo VARCHAR(500),
                 contenido TEXT,
-                fecha_evento VARCHAR(50),
+                fecha_evento VARCHAR(100),
                 imagen_url TEXT,
                 fecha_publicacion VARCHAR(50)
             )
             """))
             
+            # Tabla de cronicas reales
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS cronicas_reales (
                 id SERIAL PRIMARY KEY,
-                titulo VARCHAR(255),
+                titulo VARCHAR(500),
                 contenido TEXT,
-                autor VARCHAR(100),
+                autor VARCHAR(200),
                 fecha VARCHAR(50),
-                lugar VARCHAR(255)
+                lugar VARCHAR(300)
             )
             """))
             
+            # Tabla de videos
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS videos (
                 id SERIAL PRIMARY KEY,
-                titulo VARCHAR(255),
+                titulo VARCHAR(500),
                 url TEXT,
                 fecha_subida VARCHAR(50)
             )
             """))
             
+            # Tabla de musicas
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS musicas (
                 id SERIAL PRIMARY KEY,
-                titulo VARCHAR(255),
+                titulo VARCHAR(500),
                 url TEXT,
                 fecha_subida VARCHAR(50)
             )
             """))
             
+            # Tabla de denuncias
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS denuncias (
                 id SERIAL PRIMARY KEY,
-                denunciante VARCHAR(255),
-                titulo VARCHAR(255),
+                denunciante VARCHAR(300),
+                titulo VARCHAR(500),
                 descripcion TEXT,
-                ubicacion VARCHAR(255),
+                ubicacion VARCHAR(500),
                 fecha VARCHAR(50),
                 estatus VARCHAR(50) DEFAULT 'Pendiente'
             )
             """))
             
+            # Tabla de opiniones
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS opiniones (
                 id SERIAL PRIMARY KEY,
-                usuario VARCHAR(100),
+                usuario VARCHAR(200),
                 comentario TEXT,
                 calificacion INTEGER,
                 fecha VARCHAR(50),
@@ -142,13 +153,16 @@ def create_tables():
             )
             """))
             
+            # Tabla de visitas
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS visitas (
                 id INTEGER PRIMARY KEY,
-                conteo INTEGER DEFAULT 0
+                conteo INTEGER DEFAULT 0,
+                ultima_actualizacion VARCHAR(50)
             )
             """))
             
+            # Tabla de configuracion
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS configuracion (
                 id INTEGER PRIMARY KEY,
@@ -159,10 +173,12 @@ def create_tables():
             )
             """))
             
+            # Inicializar visitas
             res_v = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
             if not res_v:
                 s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
             
+            # Inicializar configuracion
             res_c = s.execute(text("SELECT id FROM configuracion WHERE id = 1")).fetchone()
             if not res_c:
                 s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv, ultima_actualizacion_dolar, ultima_actualizacion_noticias) VALUES (1, NULL, 60.0, NULL, NULL)"))
@@ -173,9 +189,9 @@ def create_tables():
                 s.execute(text("""
                     INSERT INTO cronicas_reales (titulo, contenido, autor, fecha, lugar)
                     VALUES ('Los Valles del Tuy: Cuna de la Independencia', 
-                    'Los Valles del Tuy, tierra de hombres y mujeres valientes, fue escenario de importantes batallas durante la Guerra de Independencia. En 1814, el Libertador Simon Bolivar acampo en estas tierras antes de la Batalla de La Victoria. La valentia de los tuyeros quedo grabada en la historia patria. Hoy, Santa Teresa del Tuy y sus pueblos vecinos honran ese legado de libertad y resistencia.',
-                    'Cronista Oficial', '1814', 'Valles del Tuy')
-                """), {"t": "Cronica", "c": "Contenido", "a": "Autor", "f": "Fecha", "l": "Lugar"})
+                    'Los Valles del Tuy, tierra de hombres y mujeres valientes, fue escenario de importantes batallas durante la Guerra de Independencia. En 1814, el Libertador Simon Bolivar acampo en estas tierras antes de la Batalla de La Victoria. La valentia de los tuyeros quedo grabada en la historia patria. Hoy, Santa Teresa del Tuy y sus pueblos vecinos honran ese legado de libertad y resistencia.\\n\\nEl 15 de septiembre de 1781, el Obispo Mariano Marti fundo oficialmente Santa Teresa del Tuy. Desde entonces, este valle fertil ha sido testigo de incontables historias de esfuerzo, fe y progreso. Las haciendas cacaoteras, los cultivos de cafe y la tradicional elaboracion del casabe forman parte de nuestra identidad cultural.',
+                    'Cronista Oficial de Santa Teresa', '1781-2026', 'Valles del Tuy, Estado Miranda')
+                """))
                 s.commit()
             
             # Cargar reflexion cristiana inicial
@@ -184,32 +200,41 @@ def create_tables():
                 s.execute(text("""
                     INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
                     VALUES ('La Paz que Sobrepasa Todo Entendimiento',
-                    'No se angustien por nada; más bien, presenten sus peticiones delante de Dios. La paz de Dios, que sobrepasa todo entendimiento, cuidara sus corazones y sus pensamientos.',
+                    'No se angustien por nada; mas bien, presenten sus peticiones delante de Dios. La paz de Dios, que sobrepasa todo entendimiento, cuidara sus corazones y sus pensamientos.',
                     'Filipenses 4:6-7',
-                    'Ministerio Santa Teresa', '2026-01-01', TRUE)
-                """), {"t": "Titulo", "c": "Contenido", "v": "Versiculo", "a": "Autor", "f": "Fecha", "act": True})
+                    'Ministerio Cristiano Santa Teresa', 
+                    '2026-01-01', 
+                    TRUE)
+                """))
                 s.commit()
             
             s.commit()
+            st.success("✅ Tablas creadas correctamente")
+            
     except Exception as e:
         st.error(f"Error al crear tablas: {str(e)}")
+        st.stop()
 
 create_tables()
 
 # --- FUNCION PARA OBTENER DOLAR BCV DESDE API ---
 def obtener_dolar_bcv():
-    """Obtiene el precio del dolar desde el BCV o fuentes oficiales"""
+    """Obtiene el precio del dolar desde API confiable"""
     try:
-        # API alternativa confiable
+        # API de dolar Venezuela
         url = "https://pydolarvenezuela-api.vercel.app/api/v1/dollar"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
             # Buscar el precio del dolar BCV
             if isinstance(data, dict):
+                # Buscar en diferentes posibles claves
                 for key, value in data.items():
-                    if isinstance(value, dict) and "price" in value:
-                        return float(value["price"])
+                    if isinstance(value, dict):
+                        if "price" in value:
+                            return float(value["price"])
+                        if "promedio" in value:
+                            return float(value["promedio"])
         return None
     except:
         return None
@@ -226,7 +251,7 @@ def actualizar_dolar_auto():
             return  # Ya actualizado hoy
         
         nuevo_precio = obtener_dolar_bcv()
-        if nuevo_precio:
+        if nuevo_precio and nuevo_precio > 0:
             with conn.session as s:
                 s.execute(text("UPDATE configuracion SET dolar_bcv = :p, ultima_actualizacion_dolar = :f WHERE id = 1"),
                          {"p": nuevo_precio, "f": fecha_hoy})
@@ -804,6 +829,7 @@ if es_admin:
         for _, r in reflexiones.iterrows():
             with st.expander(f"{r['titulo']} - {r['fecha']}"):
                 st.write(r['contenido'])
+                st.write(f"*{r['versiculo']}*")
                 if st.button("Eliminar", key=f"del_ref_{r['id']}"):
                     eliminar_reflexion(r['id'])
                     st.rerun()
@@ -922,6 +948,8 @@ if es_admin:
         
         with col2:
             st.write("**Actualizar Dolar BCV**")
+            precio_actual = obtener_precio_dolar()
+            st.write(f"Precio actual: {precio_actual:.2f} Bs/USD")
             if st.button("Actualizar Dolar desde BCV"):
                 nuevo_precio = obtener_dolar_bcv()
                 if nuevo_precio:
@@ -951,7 +979,10 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- CONTENIDO PRINCIPAL ---
+# ============================================
+# CONTENIDO PRINCIPAL
+# ============================================
+
 if menu == "🏠 Portada":
     st.title("Santa Teresa al Dia")
     
@@ -970,28 +1001,65 @@ elif menu == "📰 Noticias":
     
     tab_nac, tab_inter, tab_dep, tab_rep, tab_todas = st.tabs(["🇻🇪 Nacionales", "🌍 Internacionales", "⚽ Deportes", "📰 Reportajes", "📋 Todas"])
     
-    categories = {
-        "Nacional": tab_nac,
-        "Internacional": tab_inter,
-        "Deportes": tab_dep,
-        "Reportajes": tab_rep
-    }
+    with tab_nac:
+        noticias = obtener_noticias(categoria="Nacional")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']} | 📰 {n['fuente'] if n['fuente'] else 'Santa Teresa al Dia'}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_nac_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias Nacionales")
     
-    for categoria, tab in categories.items():
-        with tab:
-            noticias = obtener_noticias(categoria=categoria)
-            if not noticias.empty:
-                for _, n in noticias.iterrows():
-                    st.markdown(f"### {n['titulo']}")
-                    st.caption(f"📅 {n['fecha_publicacion']} | 📰 {n['fuente'] if n['fuente'] else 'Santa Teresa al Dia'}")
-                    st.write(n['contenido'])
-                    if es_admin:
-                        if st.button("🗑️ Eliminar", key=f"del_{categoria}_{n['id']}"):
-                            eliminar_noticia(n['id'])
-                            st.rerun()
-                    st.markdown("---")
-            else:
-                st.info(f"No hay noticias en {categoria}")
+    with tab_inter:
+        noticias = obtener_noticias(categoria="Internacional")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']} | 📰 {n['fuente'] if n['fuente'] else 'Santa Teresa al Dia'}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_inter_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias Internacionales")
+    
+    with tab_dep:
+        noticias = obtener_noticias(categoria="Deportes")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']} | 📰 {n['fuente'] if n['fuente'] else 'Santa Teresa al Dia'}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_dep_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias de Deportes")
+    
+    with tab_rep:
+        noticias = obtener_noticias(categoria="Reportajes")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']} | 📰 {n['fuente'] if n['fuente'] else 'Santa Teresa al Dia'}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_rep_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay Reportajes")
     
     with tab_todas:
         noticias = obtener_noticias()
@@ -1186,4 +1254,4 @@ st.markdown("""
     <p>Prohibida la reproduccion total o parcial - Derechos Reservados</p>
     <p>Santa Teresa del Tuy, 2026</p>
 </div>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True
