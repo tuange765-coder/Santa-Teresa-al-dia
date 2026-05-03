@@ -10,15 +10,50 @@ import random
 import requests
 import os
 import tempfile
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+import appwrite
+from appwrite.client import Client
+from appwrite.services.storage import Storage
+import gdown
+import dropbox
+import json
 
-# --- CONFIGURACION DE PAGINA ---
+# ============================================
+# CONFIGURACION DE PLATAFORMAS DE ALMACENAMIENTO
+# ============================================
+
+# --- CONFIGURACION DE CLOUDINARY (FOTOS) ---
+cloudinary.config(
+    cloud_name=st.secrets.get("CLOUDINARY_CLOUD_NAME", "demo"),
+    api_key=st.secrets.get("CLOUDINARY_API_KEY", "123456789"),
+    api_secret=st.secrets.get("CLOUDINARY_API_SECRET", "abcdefg")
+)
+
+# --- CONFIGURACION DE APPWRITE (VIDEOS) ---
+appwrite_client = Client()
+appwrite_client.set_endpoint(st.secrets.get("APPWRITE_ENDPOINT", "https://cloud.appwrite.io/v1"))
+appwrite_client.set_project(st.secrets.get("APPWRITE_PROJECT_ID", "demo"))
+appwrite_client.set_key(st.secrets.get("APPWRITE_API_KEY", "demo"))
+appwrite_storage = Storage(appwrite_client)
+
+# --- CONFIGURACION DE GOOGLE DRIVE / DROPBOX (MUSICA) ---
+# Usaremos Google Drive con gdown
+GDRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "")
+
+# ============================================
+# CONFIGURACION DE PAGINA
+# ============================================
 st.set_page_config(
     page_title="Santa Teresa al Dia",
     page_icon="🇻🇪",
     layout="wide"
 )
 
-# --- ZONA HORARIA DE VENEZUELA ---
+# ============================================
+# ZONA HORARIA DE VENEZUELA
+# ============================================
 CARACAS_TZ = pytz.timezone('America/Caracas')
 
 def get_fecha_hora_venezuela():
@@ -26,7 +61,9 @@ def get_fecha_hora_venezuela():
     ahora_caracas = ahora_utc.astimezone(CARACAS_TZ)
     return ahora_caracas
 
-# --- CONEXION A BASE DE DATOS ---
+# ============================================
+# CONEXION A NEON (BASE DE DATOS)
+# ============================================
 def init_connection():
     try:
         if "DATABASE_URL" in st.secrets:
@@ -45,31 +82,82 @@ def init_connection():
 
 conn = init_connection()
 
-# --- CREAR TABLAS SOLO SI NO EXISTEN (NO RECONSTRUIR) ---
+# ============================================
+# FUNCION PARA SUBIR IMAGEN A CLOUDINARY
+# ============================================
+def subir_imagen_a_cloudinary(archivo):
+    """Sube una imagen a Cloudinary y retorna la URL"""
+    try:
+        if archivo:
+            resultado = cloudinary.uploader.upload(archivo, folder="santa_teresa")
+            return resultado.get("secure_url")
+    except Exception as e:
+        st.error(f"Error al subir imagen a Cloudinary: {e}")
+    return None
+
+# ============================================
+# FUNCION PARA SUBIR VIDEO A APPWRITE
+# ============================================
+def subir_video_a_appwrite(archivo, titulo):
+    """Sube un video a Appwrite y retorna el file_id"""
+    try:
+        if archivo:
+            # Guardar temporalmente
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".mp4") as tmp:
+                tmp.write(archivo.read())
+                tmp_path = tmp.name
+            
+            # Subir a Appwrite
+            with open(tmp_path, "rb") as f:
+                resultado = appwrite_storage.create_file(
+                    bucket_id=st.secrets.get("APPWRITE_BUCKET_ID", "videos"),
+                    file_id="unique()",
+                    file=f
+                )
+            os.unlink(tmp_path)
+            return resultado.get("$id")
+    except Exception as e:
+        st.error(f"Error al subir video a Appwrite: {e}")
+    return None
+
+def obtener_url_video_appwrite(file_id):
+    """Obtiene la URL de visualización de un video en Appwrite"""
+    return f"{st.secrets.get('APPWRITE_ENDPOINT', '')}/storage/buckets/{st.secrets.get('APPWRITE_BUCKET_ID', 'videos')}/files/{file_id}/view?project={st.secrets.get('APPWRITE_PROJECT_ID', '')}&mode=admin"
+
+# ============================================
+# FUNCION PARA OBTENER MUSICA DE GOOGLE DRIVE
+# ============================================
+def obtener_url_musica_google_drive(file_id):
+    """Convierte un ID de Google Drive a URL de descarga directa"""
+    return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+# ============================================
+# CREAR TABLAS SOLO SI NO EXISTEN
+# ============================================
 def crear_tablas_si_no_existen():
     try:
         with conn.session as s:
-            # Tabla de noticias
+            # Tabla de noticias (con URLs de Cloudinary)
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS noticias (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 categoria TEXT,
                 contenido TEXT,
-                imagen TEXT,
+                imagen_url TEXT,
                 fecha TEXT,
                 autor TEXT
             )
             """))
             
-            # Tabla de negocios
+            # Tabla de negocios (con URLs de Cloudinary)
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS negocios (
                 id SERIAL PRIMARY KEY,
                 nombre TEXT,
                 categoria TEXT,
                 resena TEXT,
-                imagen TEXT,
+                imagen_url TEXT,
                 direccion TEXT,
                 telefono TEXT,
                 horario TEXT,
@@ -90,7 +178,7 @@ def crear_tablas_si_no_existen():
             )
             """))
             
-            # Tabla de cronicas
+            # Tabla de cronicas (expandidas a toda Venezuela)
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS cronicas (
                 id SERIAL PRIMARY KEY,
@@ -98,27 +186,28 @@ def crear_tablas_si_no_existen():
                 contenido TEXT,
                 autor TEXT,
                 fecha TEXT,
-                lugar TEXT
+                lugar TEXT,
+                estado TEXT
             )
             """))
             
-            # Tabla de videos
+            # Tabla de videos (con file_id de Appwrite)
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS videos (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
-                video_data TEXT,
+                appwrite_file_id TEXT,
                 formato TEXT,
                 fecha TEXT
             )
             """))
             
-            # Tabla de musicas
+            # Tabla de musicas (con URL de Google Drive)
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS musicas (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
-                audio_data TEXT,
+                drive_file_id TEXT,
                 formato TEXT,
                 fecha TEXT
             )
@@ -149,11 +238,11 @@ def crear_tablas_si_no_existen():
             )
             """))
             
-            # Tabla de visitas
+            # Tabla de visitas (inicia en 1500)
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS visitas (
                 id INTEGER PRIMARY KEY,
-                conteo INTEGER DEFAULT 0
+                conteo INTEGER DEFAULT 1500
             )
             """))
             
@@ -161,46 +250,55 @@ def crear_tablas_si_no_existen():
             s.execute(text("""
             CREATE TABLE IF NOT EXISTS configuracion (
                 id INTEGER PRIMARY KEY,
-                logo TEXT,
-                dolar REAL DEFAULT 65.0
+                logo_url TEXT,
+                dolar REAL DEFAULT 489.55
             )
             """))
             
             # Insertar datos iniciales solo si no existen
             res = s.execute(text("SELECT COUNT(*) FROM visitas WHERE id = 1")).fetchone()
             if res[0] == 0:
-                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 0)"))
+                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 1500)"))
             
             res2 = s.execute(text("SELECT COUNT(*) FROM configuracion WHERE id = 1")).fetchone()
             if res2[0] == 0:
-                s.execute(text("INSERT INTO configuracion (id, logo, dolar) VALUES (1, NULL, 65.0)"))
+                s.execute(text("INSERT INTO configuracion (id, logo_url, dolar) VALUES (1, NULL, 489.55)"))
             
-            # Insertar cronica inicial si no existe
+            # Insertar cronica inicial de Venezuela
             res3 = s.execute(text("SELECT COUNT(*) FROM cronicas")).fetchone()
             if res3[0] == 0:
-                s.execute(text("""
-                    INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar)
-                    VALUES ('Los Valles del Tuy', 'Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.', 'Cronista', '1781', 'Valles del Tuy')
-                """))
+                cronicas_iniciales = [
+                    ("Los Valles del Tuy", "Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.", "Cronista", "1781", "Valles del Tuy", "Miranda"),
+                    ("La Batalla de Carabobo", "El 24 de junio de 1821, el Ejército Patriota liderado por Simón Bolívar derrotó a las fuerzas realistas, sellando la independencia de Venezuela.", "Cronista", "1821", "Campo de Carabobo", "Carabobo"),
+                    ("Nacimiento del Libertador", "Simón José Antonio de la Santísima Trinidad Bolívar Palacios Ponte y Blanco nació en Caracas el 24 de julio de 1783.", "Cronista", "1783", "Caracas", "Distrito Capital"),
+                    ("La Guerra Federal", "Entre 1859 y 1863, Venezuela vivió una cruenta guerra civil que enfrentó a conservadores y liberales.", "Cronista", "1859", "Todo el territorio nacional", "Varios estados")
+                ]
+                for c in cronicas_iniciales:
+                    s.execute(text("INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar, estado) VALUES (:t, :c, :a, :f, :l, :e)"),
+                             {"t": c[0], "c": c[1], "a": c[2], "f": c[3], "l": c[4], "e": c[5]})
             
-            # Insertar reflexion inicial si no existe
+            # Insertar reflexion inicial (Reina Valera 1960)
             res4 = s.execute(text("SELECT COUNT(*) FROM reflexiones")).fetchone()
             if res4[0] == 0:
                 s.execute(text("""
                     INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                    VALUES ('La Paz de Dios', 'No se angustien por nada; presenten sus peticiones delante de Dios.', 'Filipenses 4:6-7', 'Ministerio', '2026-01-01', TRUE)
+                    VALUES ('La Paz de Dios', 
+                    'Querido hermano, no te angusties por nada. En lugar de eso, presenta tus peticiones delante de Dios. Él te dará una paz que no puedes explicar, pero que cuidará tu corazón y tus pensamientos.', 
+                    'Filipenses 4:6-7 (Reina Valera 1960)', 
+                    'Ministerio Santa Teresa', 
+                    '2026-01-01', 
+                    TRUE)
                 """))
             
-            # Insertar noticias iniciales si no existen
+            # Insertar noticias iniciales
             res5 = s.execute(text("SELECT COUNT(*) FROM noticias")).fetchone()
             if res5[0] == 0:
                 fecha_actual = datetime.now().strftime("%d/%m/%Y")
                 noticias_iniciales = [
                     ("Bienvenidos a Santa Teresa al Dia", "Nacional", "Un espacio para mantenernos informados y conectados como comunidad.", fecha_actual, "Admin"),
                     ("Santa Teresa: Tierra de progreso", "Nacional", "Nuestra ciudad sigue creciendo y desarrollándose cada día.", fecha_actual, "Admin"),
-                    ("Cultura y Tradición", "Reportajes", "Conoce las tradiciones que nos identifican como tuyeros.", fecha_actual, "Admin"),
-                    ("Deportes Locales", "Deportes", "Los equipos locales se preparan para los proximos torneos.", fecha_actual, "Admin"),
-                    ("Eventos Culturales", "Reportajes", "Pronto nuevos eventos culturales en nuestra comunidad.", fecha_actual, "Admin")
+                    ("Selección Venezolana se prepara", "Deportes", "La Vinotinto continúa su preparación para los próximos compromisos internacionales.", fecha_actual, "Admin"),
+                    ("Situación internacional", "Internacional", "Análisis de los principales sucesos que afectan la economía global.", fecha_actual, "Admin")
                 ]
                 for n in noticias_iniciales:
                     s.execute(text("INSERT INTO noticias (titulo, categoria, contenido, fecha, autor) VALUES (:t, :c, :cont, :f, :a)"),
@@ -212,10 +310,11 @@ def crear_tablas_si_no_existen():
         st.error(f"Error al crear tablas: {e}")
         return False
 
-# Ejecutar creacion de tablas (NO RECONSTRUIR)
 crear_tablas_si_no_existen()
 
-# --- FUNCION DOLAR BCV ---
+# ============================================
+# FUNCION DOLAR BCV
+# ============================================
 def obtener_dolar_bcv():
     try:
         response = requests.get("https://ve.dolarapi.com/v1/dolares", timeout=5)
@@ -245,16 +344,17 @@ def get_dolar():
         res = conn.query("SELECT dolar FROM configuracion WHERE id = 1", ttl=0)
         if not res.empty:
             return float(res.iloc[0,0])
-        return 65.0
+        return 489.55
     except:
-        return 65.0
+        return 489.55
 
-# --- ACTUALIZAR DOLAR ---
-dolar_actual = actualizar_dolar_automatico()
-if dolar_actual is None:
-    dolar_actual = get_dolar()
+# Actualizar dolar al iniciar (opcional, si la API funciona)
+# actualizar_dolar_automatico()
+dolar = get_dolar()
 
-# --- FUNCIONES GENERALES ---
+# ============================================
+# FUNCIONES GENERALES
+# ============================================
 def actualizar_visitas():
     try:
         with conn.session as s:
@@ -268,98 +368,55 @@ def get_visitas():
         res = conn.query("SELECT conteo FROM visitas WHERE id = 1", ttl=0)
         if not res.empty:
             return int(res.iloc[0,0])
-        return 0
+        return 1500
     except:
-        return 0
+        return 1500
 
 def get_logo():
     try:
-        res = conn.query("SELECT logo FROM configuracion WHERE id = 1", ttl=0)
+        res = conn.query("SELECT logo_url FROM configuracion WHERE id = 1", ttl=0)
         if not res.empty and res.iloc[0,0]:
             return res.iloc[0,0]
         return None
     except:
         return None
 
-def save_logo(b64):
+def save_logo(url):
     try:
         with conn.session as s:
-            s.execute(text("UPDATE configuracion SET logo = :l WHERE id = 1"), {"l": b64})
+            s.execute(text("UPDATE configuracion SET logo_url = :l WHERE id = 1"), {"l": url})
             s.commit()
         return True
     except:
         return False
 
-def img_to_base64(file):
-    if file:
-        try:
-            img = Image.open(file)
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            img.thumbnail((800, 800))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=70)
-            return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
-        except:
-            return None
-    return None
+def subir_logo_a_cloudinary(archivo):
+    return subir_imagen_a_cloudinary(archivo)
 
-def video_to_base64(file):
-    if file:
-        try:
-            return base64.b64encode(file.read()).decode()
-        except:
-            return None
-    return None
-
-def audio_to_base64(file):
-    if file:
-        try:
-            return base64.b64encode(file.read()).decode()
-        except:
-            return None
-    return None
-
-def mostrar_video(video_data, formato):
-    try:
-        video_bytes = base64.b64decode(video_data)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
-            tmp.write(video_bytes)
-            tmp_path = tmp.name
-        st.video(tmp_path)
-        os.unlink(tmp_path)
-    except:
-        st.error("Error al cargar video")
-
-def mostrar_audio(audio_data, formato):
-    try:
-        audio_bytes = base64.b64decode(audio_data)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        st.audio(tmp_path)
-        os.unlink(tmp_path)
-    except:
-        st.error("Error al cargar audio")
-
-# --- NOTICIAS ---
+# ============================================
+# NOTICIAS (con Cloudinary para imágenes)
+# ============================================
 def add_noticia(titulo, categoria, contenido, imagen):
     try:
         ahora = get_fecha_hora_venezuela()
-        img = img_to_base64(imagen) if imagen else None
+        imagen_url = subir_imagen_a_cloudinary(imagen) if imagen else None
         with conn.session as s:
             s.execute(text("""
-                INSERT INTO noticias (titulo, categoria, contenido, imagen, fecha, autor)
+                INSERT INTO noticias (titulo, categoria, contenido, imagen_url, fecha, autor)
                 VALUES (:t, :c, :cont, :i, :f, 'Admin')
-            """), {"t": titulo, "c": categoria, "cont": contenido, "i": img, "f": ahora.strftime("%d/%m/%Y")})
+            """), {"t": titulo, "c": categoria, "cont": contenido, "i": imagen_url, "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
         return False
 
-def get_noticias():
+def get_noticias(categoria=None):
     try:
-        return conn.query("SELECT * FROM noticias ORDER BY id DESC", ttl=0)
+        if categoria and categoria != "Todas":
+            return conn.query("SELECT * FROM noticias WHERE categoria = :cat ORDER BY id DESC", 
+                            params={"cat": categoria}, ttl=0)
+        else:
+            return conn.query("SELECT * FROM noticias ORDER BY id DESC", ttl=0)
     except:
         return pd.DataFrame()
 
@@ -372,16 +429,18 @@ def delete_noticia(id_):
     except:
         return False
 
-# --- NEGOCIOS ---
+# ============================================
+# NEGOCIOS (con Cloudinary para fotos)
+# ============================================
 def add_negocio(nombre, categoria, resena, direccion, telefono, horario, imagen):
     try:
         ahora = get_fecha_hora_venezuela()
-        img = img_to_base64(imagen) if imagen else None
+        imagen_url = subir_imagen_a_cloudinary(imagen) if imagen else None
         with conn.session as s:
             s.execute(text("""
-                INSERT INTO negocios (nombre, categoria, resena, imagen, direccion, telefono, horario, fecha)
+                INSERT INTO negocios (nombre, categoria, resena, imagen_url, direccion, telefono, horario, fecha)
                 VALUES (:n, :c, :r, :i, :d, :t, :h, :f)
-            """), {"n": nombre, "c": categoria, "r": resena, "i": img, "d": direccion, "t": telefono, "h": horario, "f": ahora.strftime("%d/%m/%Y")})
+            """), {"n": nombre, "c": categoria, "r": resena, "i": imagen_url, "d": direccion, "t": telefono, "h": horario, "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
@@ -402,7 +461,9 @@ def delete_negocio(id_):
     except:
         return False
 
-# --- REFLEXIONES ---
+# ============================================
+# REFLEXIONES (Reina Valera 1960)
+# ============================================
 def add_reflexion(titulo, contenido, versiculo):
     try:
         ahora = get_fecha_hora_venezuela()
@@ -441,23 +502,29 @@ def delete_reflexion(id_):
     except:
         return False
 
-# --- CRONICAS ---
-def add_cronica(titulo, contenido, lugar):
+# ============================================
+# CRONICAS (Expandidas a toda Venezuela)
+# ============================================
+def add_cronica(titulo, contenido, lugar, estado):
     try:
         ahora = get_fecha_hora_venezuela()
         with conn.session as s:
             s.execute(text("""
-                INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar)
-                VALUES (:t, :c, 'Admin', :f, :l)
-            """), {"t": titulo, "c": contenido, "f": ahora.strftime("%d/%m/%Y"), "l": lugar})
+                INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar, estado)
+                VALUES (:t, :c, 'Admin', :f, :l, :e)
+            """), {"t": titulo, "c": contenido, "f": ahora.strftime("%d/%m/%Y"), "l": lugar, "e": estado})
             s.commit()
         return True
     except:
         return False
 
-def get_cronicas():
+def get_cronicas(estado=None):
     try:
-        return conn.query("SELECT * FROM cronicas ORDER BY id DESC", ttl=0)
+        if estado and estado != "Todos":
+            return conn.query("SELECT * FROM cronicas WHERE estado = :e ORDER BY id DESC", 
+                            params={"e": estado}, ttl=0)
+        else:
+            return conn.query("SELECT * FROM cronicas ORDER BY id DESC", ttl=0)
     except:
         return pd.DataFrame()
 
@@ -470,19 +537,22 @@ def delete_cronica(id_):
     except:
         return False
 
-# --- VIDEOS ---
+# ============================================
+# VIDEOS (con Appwrite)
+# ============================================
 def add_video(titulo, archivo):
     try:
         ahora = get_fecha_hora_venezuela()
-        data = video_to_base64(archivo)
-        formato = archivo.type.split("/")[-1] if archivo.type else "mp4"
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO videos (titulo, video_data, formato, fecha)
-                VALUES (:t, :d, :fmt, :f)
-            """), {"t": titulo, "d": data, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
+        file_id = subir_video_a_appwrite(archivo, titulo)
+        if file_id:
+            with conn.session as s:
+                s.execute(text("""
+                    INSERT INTO videos (titulo, appwrite_file_id, formato, fecha)
+                    VALUES (:t, :fid, 'mp4', :f)
+                """), {"t": titulo, "fid": file_id, "f": ahora.strftime("%d/%m/%Y")})
+                s.commit()
+            return True
+        return False
     except:
         return False
 
@@ -494,6 +564,17 @@ def get_videos():
 
 def delete_video(id_):
     try:
+        # Primero obtener el file_id
+        res = conn.query("SELECT appwrite_file_id FROM videos WHERE id = :id", params={"id": id_}, ttl=0)
+        if not res.empty:
+            file_id = res.iloc[0,0]
+            try:
+                appwrite_storage.delete_file(
+                    bucket_id=st.secrets.get("APPWRITE_BUCKET_ID", "videos"),
+                    file_id=file_id
+                )
+            except:
+                pass
         with conn.session as s:
             s.execute(text("DELETE FROM videos WHERE id = :id"), {"id": id_})
             s.commit()
@@ -501,17 +582,20 @@ def delete_video(id_):
     except:
         return False
 
-# --- MUSICA ---
-def add_musica(titulo, archivo):
+def obtener_video_url(file_id):
+    return obtener_url_video_appwrite(file_id)
+
+# ============================================
+# MUSICA (con Google Drive)
+# ============================================
+def add_musica(titulo, drive_file_id):
     try:
         ahora = get_fecha_hora_venezuela()
-        data = audio_to_base64(archivo)
-        formato = archivo.type.split("/")[-1] if archivo.type else "mp3"
         with conn.session as s:
             s.execute(text("""
-                INSERT INTO musicas (titulo, audio_data, formato, fecha)
-                VALUES (:t, :d, :fmt, :f)
-            """), {"t": titulo, "d": data, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
+                INSERT INTO musicas (titulo, drive_file_id, formato, fecha)
+                VALUES (:t, :did, 'mp3', :f)
+            """), {"t": titulo, "did": drive_file_id, "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
@@ -532,7 +616,12 @@ def delete_musica(id_):
     except:
         return False
 
-# --- DENUNCIAS ---
+def obtener_musica_url(drive_file_id):
+    return obtener_url_musica_google_drive(drive_file_id)
+
+# ============================================
+# DENUNCIAS
+# ============================================
 def add_denuncia(denunciante, titulo, descripcion, ubicacion):
     try:
         ahora = get_fecha_hora_venezuela()
@@ -570,7 +659,9 @@ def delete_denuncia(id_):
     except:
         return False
 
-# --- OPINIONES ---
+# ============================================
+# OPINIONES
+# ============================================
 def add_opinion(usuario, comentario, calificacion):
     try:
         ahora = get_fecha_hora_venezuela()
@@ -611,12 +702,18 @@ def delete_opinion(id_):
     except:
         return False
 
-# --- CONTADOR DE VISITAS ---
+# ============================================
+# CONTADOR DE VISITAS
+# ============================================
 if 'visitante_contado' not in st.session_state:
     actualizar_visitas()
     st.session_state.visitante_contado = True
 
-# --- ESTILOS ---
+visitas = get_visitas()
+
+# ============================================
+# ESTILOS (con placa de bronce mejorada)
+# ============================================
 st.markdown("""
 <style>
 .stApp {
@@ -662,31 +759,87 @@ input, textarea, .stSelectbox {
     text-align: center;
     margin-bottom: 20px;
 }
+
+/* Placa de Bronce Mejorada */
 .bronze-footer {
     background: linear-gradient(145deg, #8c6a31, #5d431a);
     border: 5px solid #d4af37;
-    padding: 25px;
+    padding: 35px 25px;
     border-radius: 20px;
     text-align: center;
     margin-top: 50px;
+    position: relative;
+    box-shadow: inset 2px 2px 12px rgba(255,255,255,0.3), 12px 12px 30px rgba(0,0,0,0.8);
 }
 .bronze-footer p {
     color: #ffd700 !important;
+    font-family: 'Times New Roman', serif;
+    font-weight: bold;
+    text-shadow: 3px 3px 6px rgba(0,0,0,0.9);
 }
+.bronze-footer .titulo {
+    font-size: 1.8em;
+    letter-spacing: 4px;
+}
+.bronze-footer .subtitulo {
+    font-size: 1.3em;
+}
+.bronze-footer .fecha {
+    font-size: 1.1em;
+}
+.screw {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    background: radial-gradient(circle at 30% 30%, #bbb, #444);
+    border-radius: 50%;
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.6);
+    border: 1px solid #d4af37;
+}
+.screw::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 15%;
+    width: 70%;
+    height: 2px;
+    background: #333;
+    transform: translateY(-50%) rotate(45deg);
+}
+.screw::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 15%;
+    width: 70%;
+    height: 2px;
+    background: #333;
+    transform: translateY(-50%) rotate(-45deg);
+}
+.screw-tl { top: 15px; left: 15px; }
+.screw-tr { top: 15px; right: 15px; }
+.screw-bl { bottom: 15px; left: 15px; }
+.screw-br { bottom: 15px; right: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FECHA Y HORA ---
+# ============================================
+# FECHA Y HORA
+# ============================================
 ahora = get_fecha_hora_venezuela()
 dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
-# --- LOGO ---
+# ============================================
+# LOGO
+# ============================================
 logo = get_logo()
 if logo:
     st.markdown(f'<div style="text-align: center;"><img src="{logo}" style="max-width: 200px;"></div>', unsafe_allow_html=True)
 
-# --- ENCABEZADO ---
+# ============================================
+# ENCABEZADO
+# ============================================
 st.markdown(f"""
 <div style="text-align: center; margin-bottom: 20px;">
     <div style="background: linear-gradient(135deg, #FFD700, #00247D, #CF142B); border-radius: 20px; padding: 20px;">
@@ -695,12 +848,6 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
-# ============================================
-# DOLAR ACTUALIZADO
-# ============================================
-visitas = get_visitas()
-dolar = get_dolar()
 
 # ============================================
 # SIDEBAR
@@ -716,10 +863,10 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Panel de Administracion
+    # Panel de Administracion (independiente del menu principal)
     es_admin = False
-    with st.expander("🔐 Administrador", expanded=False):
-        clave = st.text_input("Clave:", type="password")
+    with st.expander("🔐 Panel de Control", expanded=False):
+        clave = st.text_input("Clave de Administrador:", type="password")
         if clave == "Juan*316*" or clave == "1966":
             es_admin = True
             st.success("✅ Acceso concedido")
@@ -770,22 +917,44 @@ if menu == "🏠 Portada":
         for _, n in negocios.head(3).iterrows():
             st.markdown(f"**{n['nombre']}** - {n['categoria']}")
 
-# --- NOTICIAS ---
+# --- NOTICIAS (Nacionales, Internacionales, Deportes) ---
 elif menu == "📰 Noticias":
     st.title("📰 Noticias")
     
-    cat = st.selectbox("Filtrar por categoria", ["Todas", "Nacional", "Internacional", "Deportes", "Reportajes"])
-    noticias = get_noticias()
+    tab_nac, tab_inter, tab_dep = st.tabs(["🇻🇪 Nacionales", "🌍 Internacionales", "⚽ Deportes"])
     
-    if not noticias.empty:
-        for _, n in noticias.iterrows():
-            if cat == "Todas" or n['categoria'] == cat:
+    with tab_nac:
+        noticias = get_noticias(categoria="Nacional")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
                 st.markdown(f"### {n['titulo']}")
-                st.caption(f"📅 {n['fecha']} | 🏷️ {n['categoria']}")
+                st.caption(f"📅 {n['fecha']}")
                 st.write(n['contenido'])
                 st.markdown("---")
-    else:
-        st.info("No hay noticias disponibles")
+        else:
+            st.info("No hay noticias Nacionales")
+    
+    with tab_inter:
+        noticias = get_noticias(categoria="Internacional")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha']}")
+                st.write(n['contenido'])
+                st.markdown("---")
+        else:
+            st.info("No hay noticias Internacionales")
+    
+    with tab_dep:
+        noticias = get_noticias(categoria="Deportes")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha']}")
+                st.write(n['contenido'])
+                st.markdown("---")
+        else:
+            st.info("No hay noticias de Deportes")
 
 # --- DONDE IR - DONDE COMPRAR ---
 elif menu == "🏪 Donde ir - Donde comprar":
@@ -796,8 +965,8 @@ elif menu == "🏪 Donde ir - Donde comprar":
         for _, n in negocios.iterrows():
             col1, col2 = st.columns([1, 2])
             with col1:
-                if n['imagen']:
-                    st.image(n['imagen'], use_container_width=True)
+                if n['imagen_url']:
+                    st.image(n['imagen_url'], use_container_width=True)
                 else:
                     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png", use_container_width=True)
             with col2:
@@ -814,7 +983,7 @@ elif menu == "🏪 Donde ir - Donde comprar":
     else:
         st.info("No hay negocios agregados aún")
 
-# --- REFLEXIONES ---
+# --- REFLEXIONES (Reina Valera 1960) ---
 elif menu == "🙏 Reflexiones":
     st.title("🙏 Pan de Vida y Reflexiones")
     
@@ -832,48 +1001,54 @@ elif menu == "🙏 Reflexiones":
     else:
         st.info("No hay reflexión activa para hoy")
 
-# --- CRONICAS ---
+# --- CRONICAS (Expandidas a toda Venezuela) ---
 elif menu == "📜 Cronicas":
-    st.title("📜 Cronicas de Santa Teresa")
+    st.title("📜 Cronicas de Venezuela")
+    st.markdown("*Historias y testimonios de todos los rincones de nuestra tierra*")
     
-    cronicas = get_cronicas()
+    estados_venezuela = ["Todos", "Miranda", "Carabobo", "Distrito Capital", "Zulia", "Lara", "Aragua", "Bolivar", "Anzoategui", "Merida", "Tachira", "Nueva Esparta", "Sucre", "Falcon", "Barinas", "Portuguesa", "Guarico", "Cojedes", "Trujillo", "Yaracuy", "Apure", "Amazonas", "Delta Amacuro", "Vargas", "La Guaira"]
+    estado_filtro = st.selectbox("Filtrar por estado", estados_venezuela)
+    
+    cronicas = get_cronicas(estado_filtro if estado_filtro != "Todos" else None)
     if not cronicas.empty:
         for _, c in cronicas.iterrows():
-            with st.expander(f"📖 {c['titulo']} - {c['lugar']}"):
+            with st.expander(f"📖 {c['titulo']} - {c['lugar']}, {c['estado']}"):
                 st.write(c['contenido'])
                 st.caption(f"Publicado: {c['fecha']}")
     else:
-        st.info("No hay cronicas publicadas aún")
+        st.info("No hay cronicas disponibles")
 
-# --- MULTIMEDIA ---
+# --- MULTIMEDIA (Videos en Appwrite, Música en Google Drive) ---
 elif menu == "🎬 Multimedia":
     st.title("🎬 Multimedia")
     
-    tab1, tab2, tab3 = st.tabs(["🎥 Videos", "🎵 Musica", "📻 Radio"])
+    tab_videos, tab_musica, tab_radio = st.tabs(["🎥 Videos", "🎵 Musica", "📻 Radio"])
     
-    with tab1:
+    with tab_videos:
         videos = get_videos()
         if not videos.empty:
             for _, v in videos.iterrows():
                 st.markdown(f"**{v['titulo']}**")
-                mostrar_video(v['video_data'], v['formato'])
+                video_url = obtener_video_url(v['appwrite_file_id'])
+                st.video(video_url)
                 st.caption(f"Subido: {v['fecha']}")
                 st.markdown("---")
         else:
             st.info("No hay videos disponibles")
     
-    with tab2:
+    with tab_musica:
         musicas = get_musicas()
         if not musicas.empty:
             for _, m in musicas.iterrows():
                 st.markdown(f"**{m['titulo']}**")
-                mostrar_audio(m['audio_data'], m['formato'])
+                audio_url = obtener_musica_url(m['drive_file_id'])
+                st.audio(audio_url)
                 st.caption(f"Agregado: {m['fecha']}")
                 st.markdown("---")
         else:
             st.info("No hay musica disponible")
     
-    with tab3:
+    with tab_radio:
         st.markdown("### 📻 Radio Online")
         st.audio("https://streaming.radiosenlinea.net/9090/stream")
 
@@ -946,7 +1121,7 @@ elif menu == "💬 Opiniones":
             st.info("No hay opiniones aún")
 
 # ============================================
-# PANEL DE ADMINISTRACION (SOLO EL ADMIN LO VE)
+# PANEL DE ADMINISTRACION (Independiente)
 # ============================================
 if es_admin:
     st.sidebar.markdown("---")
@@ -988,6 +1163,8 @@ if es_admin:
         if not noticias.empty:
             for _, n in noticias.iterrows():
                 with st.expander(f"{n['titulo']} - {n['fecha']}"):
+                    if n['imagen_url']:
+                        st.image(n['imagen_url'], width=200)
                     st.write(n['contenido'])
                     if st.button("🗑️ Eliminar", key=f"del_not_{n['id']}"):
                         delete_noticia(n['id'])
@@ -1022,8 +1199,8 @@ if es_admin:
         if not negocios.empty:
             for _, n in negocios.iterrows():
                 with st.expander(f"{n['nombre']} - {n['categoria']}"):
-                    if n['imagen']:
-                        st.image(n['imagen'], width=200)
+                    if n['imagen_url']:
+                        st.image(n['imagen_url'], width=200)
                     st.write(n['resena'])
                     if st.button("🗑️ Eliminar", key=f"del_neg_{n['id']}"):
                         delete_negocio(n['id'])
@@ -1070,10 +1247,11 @@ if es_admin:
             st.subheader("➕ Nueva Crónica")
             titulo = st.text_input("Título")
             lugar = st.text_input("Lugar")
+            estado = st.selectbox("Estado", ["Miranda", "Carabobo", "Distrito Capital", "Zulia", "Lara", "Aragua", "Bolivar", "Anzoategui", "Merida", "Tachira", "Nueva Esparta", "Sucre", "Falcon", "Barinas", "Portuguesa", "Guarico", "Cojedes", "Trujillo", "Yaracuy", "Apure", "Amazonas", "Delta Amacuro", "Vargas", "La Guaira"])
             contenido = st.text_area("Contenido", height=150)
             if st.form_submit_button("📜 Guardar"):
                 if titulo and contenido:
-                    if add_cronica(titulo, contenido, lugar):
+                    if add_cronica(titulo, contenido, lugar, estado):
                         st.success("✅ Crónica guardada!")
                         st.rerun()
                 else:
@@ -1084,7 +1262,7 @@ if es_admin:
         cronicas = get_cronicas()
         if not cronicas.empty:
             for _, c in cronicas.iterrows():
-                with st.expander(f"{c['titulo']} - {c['lugar']}"):
+                with st.expander(f"{c['titulo']} - {c['lugar']}, {c['estado']}"):
                     st.write(c['contenido'])
                     if st.button("🗑️ Eliminar", key=f"del_cron_{c['id']}"):
                         delete_cronica(c['id'])
@@ -1092,18 +1270,19 @@ if es_admin:
         else:
             st.info("No hay crónicas")
     
-    # --- ADMIN: VIDEOS ---
+    # --- ADMIN: VIDEOS (Appwrite) ---
     elif admin_option == "🎬 Videos":
         st.title("🎬 Gestionar Videos")
         
         with st.form("form_video"):
-            st.subheader("➕ Subir Video")
+            st.subheader("➕ Subir Video (Appwrite)")
             titulo = st.text_input("Título del Video")
-            archivo = st.file_uploader("Seleccionar video", type=["mp4", "avi", "mov", "mkv"])
-            if st.form_submit_button("🎬 Subir"):
+            archivo = st.file_uploader("Seleccionar video (MP4, AVI, MOV, MKV)", type=["mp4", "avi", "mov", "mkv"])
+            st.info("⚠️ Los videos se almacenan en Appwrite (máx 5GB por archivo)")
+            if st.form_submit_button("🎬 Subir Video"):
                 if titulo and archivo:
                     if add_video(titulo, archivo):
-                        st.success("✅ Video subido!")
+                        st.success("✅ Video subido a Appwrite!")
                         st.rerun()
                 else:
                     st.warning("⚠️ Complete los campos")
@@ -1114,25 +1293,26 @@ if es_admin:
         if not videos.empty:
             for _, v in videos.iterrows():
                 with st.expander(v['titulo']):
-                    mostrar_video(v['video_data'], v['formato'])
+                    st.video(obtener_video_url(v['appwrite_file_id']))
                     if st.button("🗑️ Eliminar", key=f"del_vid_{v['id']}"):
                         delete_video(v['id'])
                         st.rerun()
         else:
             st.info("No hay videos")
     
-    # --- ADMIN: MUSICA ---
+    # --- ADMIN: MUSICA (Google Drive) ---
     elif admin_option == "🎵 Musica":
         st.title("🎵 Gestionar Música")
         
         with st.form("form_musica"):
-            st.subheader("➕ Subir Música")
+            st.subheader("➕ Agregar Canción (Google Drive)")
             titulo = st.text_input("Título de la Canción")
-            archivo = st.file_uploader("Seleccionar audio", type=["mp3", "wav", "ogg"])
-            if st.form_submit_button("🎵 Subir"):
-                if titulo and archivo:
-                    if add_musica(titulo, archivo):
-                        st.success("✅ Música subida!")
+            drive_file_id = st.text_input("ID del archivo de Google Drive", help="Copiar el ID del enlace de Google Drive")
+            st.info("📌 ¿Cómo obtener el ID? El ID es la parte entre /d/ y /view del enlace de Google Drive: https://drive.google.com/file/d/XXXXXX/view")
+            if st.form_submit_button("🎵 Agregar Canción"):
+                if titulo and drive_file_id:
+                    if add_musica(titulo, drive_file_id):
+                        st.success("✅ Canción agregada!")
                         st.rerun()
                 else:
                     st.warning("⚠️ Complete los campos")
@@ -1143,7 +1323,7 @@ if es_admin:
         if not musicas.empty:
             for _, m in musicas.iterrows():
                 with st.expander(m['titulo']):
-                    mostrar_audio(m['audio_data'], m['formato'])
+                    st.audio(obtener_musica_url(m['drive_file_id']))
                     if st.button("🗑️ Eliminar", key=f"del_mus_{m['id']}"):
                         delete_musica(m['id'])
                         st.rerun()
@@ -1164,11 +1344,11 @@ if es_admin:
                     nuevo_estado = st.selectbox("Estado", ["Pendiente", "En revisión", "Resuelta", "Descartada"], key=f"est_{d['id']}")
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("Actualizar", key=f"upd_{d['id']}"):
+                        if st.button("✅ Actualizar", key=f"upd_{d['id']}"):
                             update_denuncia_status(d['id'], nuevo_estado)
                             st.rerun()
                     with col2:
-                        if st.button("Eliminar", key=f"del_den_{d['id']}"):
+                        if st.button("🗑️ Eliminar", key=f"del_den_{d['id']}"):
                             delete_denuncia(d['id'])
                             st.rerun()
         else:
@@ -1183,17 +1363,17 @@ if es_admin:
         if not opiniones_pendientes.empty:
             for _, op in opiniones_pendientes.iterrows():
                 if not op['aprobada']:
-                        with st.expander(f"{op['usuario']} - {op['fecha']}"):
-                            st.write(op['comentario'])
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("✅ Aprobar", key=f"aprob_{op['id']}"):
-                                    approve_opinion(op['id'])
-                                    st.rerun()
-                            with col2:
-                                if st.button("🗑️ Eliminar", key=f"del_op_{op['id']}"):
-                                    delete_opinion(op['id'])
-                                    st.rerun()
+                    with st.expander(f"{op['usuario']} - {op['fecha']}"):
+                        st.write(op['comentario'])
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("✅ Aprobar", key=f"aprob_{op['id']}"):
+                                approve_opinion(op['id'])
+                                st.rerun()
+                        with col2:
+                            if st.button("🗑️ Eliminar", key=f"del_op_{op['id']}"):
+                                delete_opinion(op['id'])
+                                st.rerun()
         else:
             st.info("No hay opiniones pendientes")
         
@@ -1217,35 +1397,50 @@ if es_admin:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("🎨 Logo")
+            st.subheader("🎨 Logo de la App")
             if logo:
                 st.image(logo, width=150)
             nuevo_logo = st.file_uploader("Subir nuevo logo", type=["png", "jpg"])
             if nuevo_logo and st.button("💾 Guardar Logo"):
-                b64 = img_to_base64(nuevo_logo)
-                if save_logo(b64):
-                    st.success("Logo guardado!")
+                url_logo = subir_logo_a_cloudinary(nuevo_logo)
+                if url_logo:
+                    save_logo(url_logo)
+                    st.success("Logo guardado en Cloudinary!")
                     st.rerun()
+                else:
+                    st.error("Error al subir logo")
         
         with col2:
             st.subheader("💰 Dólar BCV")
             st.write(f"Precio actual: {dolar:.2f} Bs/USD")
-            if st.button("🔄 Actualizar manualmente"):
-                nuevo_dolar = obtener_dolar_bcv()
-                if nuevo_dolar:
-                    with conn.session as s:
-                        s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_dolar})
-                        s.commit()
-                    st.success(f"Dólar actualizado a {nuevo_dolar:.2f} Bs")
-                    st.rerun()
-                else:
-                    st.error("No se pudo obtener el precio")
+            nuevo_dolar = st.number_input("Nuevo valor (Bs/USD)", value=float(dolar), step=0.01)
+            if st.button("💾 Actualizar Dólar"):
+                with conn.session as s:
+                    s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_dolar})
+                    s.commit()
+                st.success(f"Dólar actualizado a {nuevo_dolar:.2f} Bs")
+                st.rerun()
+            
+            st.markdown("---")
+            st.markdown("### 📊 Estadísticas")
+            st.metric("Total de Noticias", len(get_noticias()))
+            st.metric("Total de Negocios", len(get_negocios()))
+            st.metric("Total de Crónicas", len(get_cronicas()))
+            st.metric("Total de Denuncias", len(get_denuncias()))
+            st.metric("Total de Opiniones", len(get_opiniones(aprobadas=False)))
 
-# --- FOOTER ---
+# ============================================
+# FOOTER - PLACA DE BRONCE MEJORADA
+# ============================================
 st.markdown("""
 <div class="bronze-footer">
-    <p>⚜️ DESARROLLADO POR WILLIAN ALMENAR ⚜️</p>
-    <p>Prohibida la reproducción total o parcial - Derechos Reservados</p>
-    <p>Santa Teresa del Tuy, 2026</p>
+    <div class="screw screw-tl"></div>
+    <div class="screw screw-tr"></div>
+    <div class="screw screw-bl"></div>
+    <div class="screw screw-br"></div>
+    <p class="titulo">⚜️ DESARROLLADO POR WILLIAN ALMENAR ⚜️</p>
+    <p class="subtitulo">Prohibida la reproducción total o parcial</p>
+    <p class="subtitulo">DERECHOS RESERVADOS</p>
+    <p class="fecha">Santa Teresa del Tuy, 2026</p>
 </div>
 """, unsafe_allow_html=True)
