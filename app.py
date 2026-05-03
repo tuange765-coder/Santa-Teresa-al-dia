@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import pytz
 from sqlalchemy import text
 from PIL import Image
 import base64
@@ -15,6 +16,15 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- ZONA HORARIA DE VENEZUELA (UTC-4) ---
+CARACAS_TZ = pytz.timezone('America/Caracas')
+
+def get_fecha_hora_venezuela():
+    """Obtiene fecha y hora actual de Venezuela"""
+    ahora_utc = datetime.now(pytz.UTC)
+    ahora_caracas = ahora_utc.astimezone(CARACAS_TZ)
+    return ahora_caracas
 
 # --- CONEXION A NEON (POSTGRESQL) ---
 def init_connection():
@@ -48,6 +58,7 @@ def create_tables():
                 contenido TEXT,
                 imagen_url TEXT,
                 fecha_publicacion VARCHAR(50),
+                fecha_completa TIMESTAMP,
                 autor VARCHAR(100)
             )
             """))
@@ -68,7 +79,9 @@ def create_tables():
                 id SERIAL PRIMARY KEY,
                 titulo VARCHAR(255),
                 contenido TEXT,
-                fecha_evento VARCHAR(50)
+                fecha_evento VARCHAR(50),
+                imagen_url TEXT,
+                fecha_publicacion VARCHAR(50)
             )
             """))
             
@@ -116,7 +129,8 @@ def create_tables():
             CREATE TABLE IF NOT EXISTS configuracion (
                 id INTEGER PRIMARY KEY,
                 logo_data TEXT,
-                dolar_bcv REAL DEFAULT 60.0
+                dolar_bcv REAL DEFAULT 60.0,
+                ultima_actualizacion_noticias VARCHAR(50)
             )
             """))
             
@@ -126,7 +140,7 @@ def create_tables():
             
             res_c = s.execute(text("SELECT id FROM configuracion WHERE id = 1")).fetchone()
             if not res_c:
-                s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv) VALUES (1, NULL, 60.0)"))
+                s.execute(text("INSERT INTO configuracion (id, logo_data, dolar_bcv, ultima_actualizacion_noticias) VALUES (1, NULL, 60.0, NULL)"))
             
             s.commit()
     except Exception as e:
@@ -183,9 +197,9 @@ def guardar_logo(logo_b64):
         return False
 
 def obtener_efemerides():
-    hoy = datetime.now()
-    dia = hoy.day
-    mes = hoy.month
+    ahora = get_fecha_hora_venezuela()
+    dia = ahora.day
+    mes = ahora.month
     efemerides = {
         (1,1): "Año Nuevo - Fundacion de Santa Teresa del Tuy (1781)",
         (19,4): "Declaracion de la Independencia (1810)",
@@ -195,7 +209,7 @@ def obtener_efemerides():
         (12,10): "Dia de la Resistencia Indigena",
         (25,12): "Navidad - Nacimiento del Niño Jesus"
     }
-    return efemerides.get((dia, mes), f"{dia} de {hoy.strftime('%B')}")
+    return efemerides.get((dia, mes), f"{dia} de {ahora.strftime('%B')} de {ahora.year}")
 
 def imagen_a_base64(file):
     if file:
@@ -214,13 +228,14 @@ def imagen_a_base64(file):
 # --- FUNCIONES NOTICIAS ---
 def publicar_noticia(titulo, categoria, contenido, imagen):
     try:
+        ahora = get_fecha_hora_venezuela()
         img_url = imagen_a_base64(imagen) if imagen else None
         with conn.session as s:
             s.execute(text("""
-                INSERT INTO noticias (titulo, categoria, contenido, imagen_url, fecha_publicacion, autor)
-                VALUES (:t, :c, :cont, :img, :f, :a)
+                INSERT INTO noticias (titulo, categoria, contenido, imagen_url, fecha_publicacion, fecha_completa, autor)
+                VALUES (:t, :c, :cont, :img, :f, :fc, 'Admin')
             """), {"t": titulo, "c": categoria, "cont": contenido, "img": img_url,
-                   "f": datetime.now().strftime("%d/%m/%Y"), "a": "Admin"})
+                   "f": ahora.strftime("%d/%m/%Y"), "fc": ahora})
             s.commit()
         return True
     except:
@@ -229,10 +244,10 @@ def publicar_noticia(titulo, categoria, contenido, imagen):
 def obtener_noticias(categoria=None):
     try:
         if categoria and categoria != "Todas":
-            return conn.query("SELECT * FROM noticias WHERE categoria = :cat ORDER BY id DESC", 
+            return conn.query("SELECT * FROM noticias WHERE categoria = :cat ORDER BY fecha_completa DESC", 
                             params={"cat": categoria}, ttl=0)
         else:
-            return conn.query("SELECT * FROM noticias ORDER BY id DESC", ttl=0)
+            return conn.query("SELECT * FROM noticias ORDER BY fecha_completa DESC", ttl=0)
     except:
         return pd.DataFrame()
 
@@ -245,65 +260,45 @@ def eliminar_noticia(id_):
     except:
         return False
 
-# --- NOTICIAS DIARIAS AUTOMATICAS (COLOCADA DESPUES DE obtener_noticias) ---
-def cargar_noticias_diarias():
-    """Carga noticias predeterminadas si no hay noticias en la base de datos"""
+def cargar_noticias_diarias_auto():
+    """Carga noticias del dia si no se han cargado hoy"""
     try:
-        noticias_existentes = obtener_noticias()
-        if noticias_existentes.empty:
-            noticias_default = [
-                {
-                    "titulo": "Buenos dias Santa Teresa",
-                    "categoria": "Nacional",
-                    "contenido": "Hoy amanece con un clima cálido en nuestra ciudad. La temperatura rondará los 28°C. Aprovecha el dia!",
-                    "fecha": datetime.now().strftime("%d/%m/%Y")
-                },
-                {
-                    "titulo": "Reporte de Vialidad",
-                    "categoria": "Nacional",
-                    "contenido": "Se reporta tránsito fluido en la Autopista Regional del Centro. Se recomienda precaución en el sector de La Yaguara.",
-                    "fecha": datetime.now().strftime("%d/%m/%Y")
-                },
-                {
-                    "titulo": "Deportes",
-                    "categoria": "Deportes",
-                    "contenido": "La selección venezolana se prepara para su próximo encuentro. Los jugadores entrenan a full.",
-                    "fecha": datetime.now().strftime("%d/%m/%Y")
-                },
-                {
-                    "titulo": "Internacional",
-                    "categoria": "Internacional",
-                    "contenido": "Noticias importantes desde el mundo. Mantente informado con Santa Teresa al Dia.",
-                    "fecha": datetime.now().strftime("%d/%m/%Y")
-                },
-                {
-                    "titulo": "Reportaje del Dia",
-                    "categoria": "Reportajes",
-                    "contenido": "Conoce la historia de los emprendedores de Santa Teresa que están transformando nuestra comunidad.",
-                    "fecha": datetime.now().strftime("%d/%m/%Y")
-                }
+        ahora = get_fecha_hora_venezuela()
+        fecha_hoy = ahora.strftime("%d/%m/%Y")
+        
+        # Verificar si hay noticias
+        noticias_existentes = conn.query("SELECT COUNT(*) as total FROM noticias WHERE autor != 'Noticia Diaria Auto'", ttl=0)
+        total_noticias = noticias_existentes.iloc[0,0] if not noticias_existentes.empty else 0
+        
+        if total_noticias == 0:
+            noticias_del_dia = [
+                {"titulo": "Buenos dias Santa Teresa", "categoria": "Nacional", "contenido": "Que tengas un excelente dia. Mantente informado con Santa Teresa al Dia."},
+                {"titulo": "Reporte de Vialidad", "categoria": "Nacional", "contenido": "Trafico fluido en la Autopista Regional del Centro."},
+                {"titulo": "Resumen Deportivo", "categoria": "Deportes", "contenido": "La Vinotinto se prepara para sus proximos partidos."},
+                {"titulo": "Panorama Internacional", "categoria": "Internacional", "contenido": "Las noticias mas importantes del mundo."},
+                {"titulo": "Reportaje Especial", "categoria": "Reportajes", "contenido": "Historias de exito de emprendedores locales."}
             ]
             
             with conn.session as s:
-                for n in noticias_default:
+                for n in noticias_del_dia:
                     s.execute(text("""
-                        INSERT INTO noticias (titulo, categoria, contenido, fecha_publicacion, autor)
-                        VALUES (:t, :c, :cont, :f, 'Santa Teresa al Dia')
-                    """), {"t": n["titulo"], "c": n["categoria"], "cont": n["contenido"], "f": n["fecha"]})
+                        INSERT INTO noticias (titulo, categoria, contenido, fecha_publicacion, fecha_completa, autor)
+                        VALUES (:t, :c, :cont, :f, :fc, 'Noticia Diaria Auto')
+                    """), {"t": n["titulo"], "c": n["categoria"], "cont": n["contenido"], "f": fecha_hoy, "fc": ahora})
                 s.commit()
-            st.info("Noticias diarias cargadas automaticamente")
-    except Exception as e:
+    except:
         pass
 
 # --- FUNCIONES REFLEXIONES ---
 def guardar_reflexion(titulo, contenido):
     try:
+        ahora = get_fecha_hora_venezuela()
         with conn.session as s:
             s.execute(text("UPDATE reflexiones SET activo = FALSE"))
             s.execute(text("""
                 INSERT INTO reflexiones (titulo, contenido, autor, fecha, activo)
                 VALUES (:t, :c, :a, :f, TRUE)
-            """), {"t": titulo, "c": contenido, "a": "Admin", "f": datetime.now().strftime("%d/%m/%Y")})
+            """), {"t": titulo, "c": contenido, "a": "Admin", "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
@@ -322,33 +317,53 @@ def obtener_reflexiones():
     except:
         return pd.DataFrame()
 
-# --- FUNCIONES VENTANA PASADO ---
-def guardar_ventana(titulo, contenido, fecha_evento):
+def eliminar_reflexion(id_):
     try:
         with conn.session as s:
-            s.execute(text("""
-                INSERT INTO ventana_pasado (titulo, contenido, fecha_evento)
-                VALUES (:t, :c, :f)
-            """), {"t": titulo, "c": contenido, "f": fecha_evento})
+            s.execute(text("DELETE FROM reflexiones WHERE id = :id"), {"id": id_})
             s.commit()
         return True
     except:
         return False
 
-def obtener_ventana():
+# --- FUNCIONES VENTANA PASADO ---
+def guardar_ventana_pasado(titulo, contenido, fecha_evento, imagen):
+    try:
+        img_url = imagen_a_base64(imagen) if imagen else None
+        with conn.session as s:
+            s.execute(text("""
+                INSERT INTO ventana_pasado (titulo, contenido, fecha_evento, imagen_url, fecha_publicacion)
+                VALUES (:t, :c, :f, :img, :fp)
+            """), {"t": titulo, "c": contenido, "f": fecha_evento, "img": img_url, "fp": datetime.now().strftime("%d/%m/%Y")})
+            s.commit()
+        return True
+    except:
+        return False
+
+def obtener_ventana_pasado():
     try:
         return conn.query("SELECT * FROM ventana_pasado ORDER BY fecha_evento DESC", ttl=0)
     except:
         return pd.DataFrame()
 
+def eliminar_ventana_pasado(id_):
+    try:
+        with conn.session as s:
+            s.execute(text("DELETE FROM ventana_pasado WHERE id = :id"), {"id": id_})
+            s.commit()
+        return True
+    except:
+        return False
+
 # --- FUNCIONES CRONICAS ---
 def guardar_cronica(titulo, contenido, lugar):
     try:
+        ahora = get_fecha_hora_venezuela()
         with conn.session as s:
             s.execute(text("""
                 INSERT INTO cronicas_reales (titulo, contenido, autor, fecha, lugar)
                 VALUES (:t, :c, :a, :f, :l)
-            """), {"t": titulo, "c": contenido, "a": "Admin", "f": datetime.now().strftime("%d/%m/%Y"), "l": lugar})
+            """), {"t": titulo, "c": contenido, "a": "Admin", "f": ahora.strftime("%d/%m/%Y"), "l": lugar})
             s.commit()
         return True
     except:
@@ -360,15 +375,25 @@ def obtener_cronicas():
     except:
         return pd.DataFrame()
 
+def eliminar_cronica(id_):
+    try:
+        with conn.session as s:
+            s.execute(text("DELETE FROM cronicas_reales WHERE id = :id"), {"id": id_})
+            s.commit()
+        return True
+    except:
+        return False
+
 # --- FUNCIONES DENUNCIAS ---
 def guardar_denuncia(denunciante, titulo, descripcion, ubicacion):
     try:
+        ahora = get_fecha_hora_venezuela()
         with conn.session as s:
             s.execute(text("""
                 INSERT INTO denuncias (denunciante, titulo, descripcion, ubicacion, fecha, estatus)
                 VALUES (:d, :t, :desc, :u, :f, 'Pendiente')
             """), {"d": denunciante or "Anonimo", "t": titulo, "desc": descripcion, 
-                   "u": ubicacion, "f": datetime.now().strftime("%d/%m/%Y")})
+                   "u": ubicacion, "f": ahora.strftime("%d/%m/%Y")})
             s.commit()
         return True
     except:
@@ -401,12 +426,13 @@ def eliminar_denuncia(id_):
 # --- FUNCIONES OPINIONES ---
 def guardar_opinion(usuario, comentario, calificacion):
     try:
+        ahora = get_fecha_hora_venezuela()
         with conn.session as s:
             s.execute(text("""
                 INSERT INTO opiniones (usuario, comentario, calificacion, fecha)
                 VALUES (:u, :c, :cal, :f)
             """), {"u": usuario, "c": comentario, "cal": calificacion, 
-                   "f": datetime.now().strftime("%d/%m/%Y %H:%M")})
+                   "f": ahora.strftime("%d/%m/%Y %I:%M %p")})
             s.commit()
         return True
     except:
@@ -427,8 +453,8 @@ def eliminar_opinion(id_):
     except:
         return False
 
-# --- CARGAR NOTICIAS DIARIAS AL INICIAR (AHORA SÍ DESPUÉS DE LA DEFINICIÓN) ---
-cargar_noticias_diarias()
+# --- CARGAR NOTICIAS DIARIAS ---
+cargar_noticias_diarias_auto()
 
 # --- CONTADOR DE VISITAS ---
 if 'visitado' not in st.session_state:
@@ -499,8 +525,17 @@ input, textarea, .stSelectbox {
 </style>
 """, unsafe_allow_html=True)
 
+# --- OBTENER FECHA Y HORA CORRECTA DE VENEZUELA ---
+ahora = get_fecha_hora_venezuela()
+dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
 # --- ENCABEZADO ---
-st.markdown("""
+logo_data = obtener_logo()
+if logo_data:
+    st.markdown(f'<div style="text-align: center;"><img src="{logo_data}" style="max-width: 200px;"></div>', unsafe_allow_html=True)
+
+st.markdown(f"""
 <div style="text-align: center; margin-bottom: 20px;">
     <div style="background: linear-gradient(135deg, #FFD700, #00247D, #CF142B); border-radius: 20px; padding: 20px;">
         <h1 style="color: white;">🌟 Santa Teresa al Dia 🌟</h1>
@@ -522,99 +557,162 @@ with st.sidebar:
     st.markdown("---")
     
     menu = st.radio("Menu Principal", [
-        "Portada", "Noticias", "Reflexiones", "Multimedia",
-        "Guia Comercial", "Ventana del Pasado", "Cronicas Reales",
-        "Denuncias", "Opiniones"
+        "🏠 Portada", "📰 Noticias", "🙏 Reflexiones", "🎬 Multimedia",
+        "🏪 Guia Comercial", "📜 Ventana del Pasado", "✍️ Cronicas Reales",
+        "⚠️ Denuncias", "💬 Opiniones"
     ], index=0)
     
     st.markdown("---")
     
     es_admin = False
-    with st.expander("Administrador", expanded=False):
+    with st.expander("🔐 Administrador", expanded=False):
         clave = st.text_input("Clave:", type="password")
         if clave == "Juan*316*" or clave == "1966":
             es_admin = True
-            st.success("Acceso concedido")
+            st.success("✅ Acceso concedido")
         elif clave:
-            st.error("Clave incorrecta")
+            st.error("❌ Clave incorrecta")
 
-# --- PANEL DE ADMINISTRACION ---
+# --- PANEL DE ADMINISTRACION COMPLETO ---
 if es_admin:
     with st.sidebar:
         st.markdown("---")
-        st.markdown("### Panel de Control")
+        st.markdown("### 🛠️ Panel de Control")
         admin_accion = st.selectbox("Accion", [
-            "Publicar Noticia", "Nueva Reflexion", "Agregar a Ventana",
-            "Nueva Cronica", "Gestionar Denuncias", "Configurar App"
+            "📝 Publicar Noticia",
+            "✨ Nueva Reflexion",
+            "📜 Agregar a Ventana del Pasado",
+            "✍️ Nueva Cronica",
+            "⚠️ Gestionar Denuncias",
+            "💬 Gestionar Opiniones",
+            "🎨 Configurar App"
         ])
     
-    if admin_accion == "Publicar Noticia":
-        with st.expander("Publicar Noticia", expanded=True):
+    # Publicar Noticia
+    if admin_accion == "📝 Publicar Noticia":
+        with st.expander("📝 Publicar Nueva Noticia", expanded=True):
             titulo = st.text_input("Titulo")
             categoria = st.selectbox("Categoria", ["Nacional", "Internacional", "Deportes", "Reportajes"])
-            contenido = st.text_area("Contenido", height=150)
-            imagen = st.file_uploader("Imagen", type=["jpg", "png", "jpeg"])
-            if st.button("Publicar"):
+            contenido = st.text_area("Contenido", height=200)
+            imagen = st.file_uploader("Imagen (opcional)", type=["jpg", "png", "jpeg"])
+            if st.button("📢 Publicar"):
                 if titulo and contenido:
                     if publicar_noticia(titulo, categoria, contenido, imagen):
-                        st.success("Noticia publicada!")
+                        st.success("✅ Noticia publicada!")
                         st.rerun()
+                    else:
+                        st.error("❌ Error al publicar")
+                else:
+                    st.warning("⚠️ Titulo y contenido son obligatorios")
     
-    elif admin_accion == "Nueva Reflexion":
-        with st.expander("Reflexion", expanded=True):
-            titulo = st.text_input("Titulo")
-            contenido = st.text_area("Contenido", height=150)
-            if st.button("Guardar"):
+    # Nueva Reflexion
+    elif admin_accion == "✨ Nueva Reflexion":
+        with st.expander("✨ Escribir Reflexion Diaria", expanded=True):
+            titulo = st.text_input("Titulo", value=f"Reflexion del {ahora.strftime('%d/%m/%Y')}")
+            contenido = st.text_area("Contenido", height=200)
+            if st.button("💾 Guardar"):
                 if titulo and contenido:
-                    guardar_reflexion(titulo, contenido)
-                    st.success("Reflexion guardada!")
-                    st.rerun()
+                    if guardar_reflexion(titulo, contenido):
+                        st.success("✅ Reflexion guardada!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al guardar")
     
-    elif admin_accion == "Agregar a Ventana":
-        with st.expander("Registro Historico", expanded=True):
-            titulo = st.text_input("Titulo")
-            fecha = st.text_input("Fecha")
-            contenido = st.text_area("Descripcion", height=150)
-            if st.button("Guardar"):
+    # Agregar a Ventana del Pasado
+    elif admin_accion == "📜 Agregar a Ventana del Pasado":
+        with st.expander("📜 Agregar Registro Historico", expanded=True):
+            titulo = st.text_input("Titulo del Evento")
+            fecha_evento = st.text_input("Fecha del Evento", placeholder="Ej: 15 de septiembre de 1781")
+            contenido = st.text_area("Descripcion Historica", height=150)
+            imagen = st.file_uploader("Imagen (opcional)", type=["jpg", "png", "jpeg"])
+            if st.button("📜 Guardar"):
                 if titulo and contenido:
-                    guardar_ventana(titulo, contenido, fecha)
-                    st.success("Registro guardado!")
-                    st.rerun()
+                    if guardar_ventana_pasado(titulo, contenido, fecha_evento, imagen):
+                        st.success("✅ Registro guardado!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al guardar")
     
-    elif admin_accion == "Nueva Cronica":
-        with st.expander("Nueva Cronica", expanded=True):
+    # Nueva Cronica
+    elif admin_accion == "✍️ Nueva Cronica":
+        with st.expander("✍️ Escribir Cronica", expanded=True):
             titulo = st.text_input("Titulo")
             lugar = st.text_input("Lugar")
             contenido = st.text_area("Cronica", height=150)
-            if st.button("Guardar"):
+            if st.button("📖 Guardar"):
                 if titulo and contenido:
-                    guardar_cronica(titulo, contenido, lugar)
-                    st.success("Cronica guardada!")
-                    st.rerun()
+                    if guardar_cronica(titulo, contenido, lugar):
+                        st.success("✅ Cronica guardada!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al guardar")
     
-    elif admin_accion == "Gestionar Denuncias":
-        st.write("Gestion de Denuncias")
+    # Gestionar Denuncias
+    elif admin_accion == "⚠️ Gestionar Denuncias":
+        st.write("### Gestion de Denuncias")
         denuncias = obtener_denuncias()
-        for _, d in denuncias.iterrows():
-            with st.expander(f"{d['titulo']}"):
-                st.write(d['descripcion'])
-                nuevo = st.selectbox("Estado", ["Pendiente", "En revision", "Resuelta"], key=f"est_{d['id']}")
-                if st.button("Actualizar", key=f"upd_{d['id']}"):
-                    actualizar_estatus_denuncia(d['id'], nuevo)
-                    st.rerun()
+        if not denuncias.empty:
+            for _, d in denuncias.iterrows():
+                with st.expander(f"📌 {d['titulo']} - {d['estatus']}"):
+                    st.write(f"**Denunciante:** {d['denunciante']}")
+                    st.write(f"**Descripcion:** {d['descripcion']}")
+                    st.write(f"**Ubicacion:** {d['ubicacion']}")
+                    st.write(f"**Fecha:** {d['fecha']}")
+                    nuevo_estado = st.selectbox("Estado", ["Pendiente", "En revision", "Resuelta", "Descartada"], key=f"est_{d['id']}")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Actualizar", key=f"upd_{d['id']}"):
+                            actualizar_estatus_denuncia(d['id'], nuevo_estado)
+                            st.rerun()
+                    with col2:
+                        if st.button("🗑️ Eliminar", key=f"del_{d['id']}"):
+                            eliminar_denuncia(d['id'])
+                            st.rerun()
+        else:
+            st.info("No hay denuncias registradas")
     
-    elif admin_accion == "Configurar App":
-        precio_actual = obtener_precio_dolar()
-        nuevo = st.number_input("Dolar BCV", value=precio_actual)
-        if st.button("Actualizar"):
-            actualizar_precio_dolar(nuevo)
-            st.success("Actualizado!")
+    # Gestionar Opiniones
+    elif admin_accion == "💬 Gestionar Opiniones":
+        st.write("### Gestion de Opiniones")
+        opiniones = obtener_opiniones()
+        if not opiniones.empty:
+            for _, op in opiniones.iterrows():
+                with st.expander(f"👤 {op['usuario']} - ⭐{op['calificacion']}"):
+                    st.write(f"**Comentario:** {op['comentario']}")
+                    st.write(f"**Fecha:** {op['fecha']}")
+                    if st.button("🗑️ Eliminar", key=f"del_op_{op['id']}"):
+                        eliminar_opinion(op['id'])
+                        st.rerun()
+        else:
+            st.info("No hay opiniones registradas")
+    
+    # Configurar App
+    elif admin_accion == "🎨 Configurar App":
+        st.write("### Configuracion de la App")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**💰 Precio del Dolar BCV**")
+            precio_actual = obtener_precio_dolar()
+            nuevo_precio = st.number_input("Precio (Bs/USD)", value=precio_actual, step=0.01)
+            if st.button("Actualizar Dolar"):
+                if actualizar_precio_dolar(nuevo_precio):
+                    st.success("✅ Precio actualizado!")
+                    st.rerun()
+        
+        with col2:
+            st.write("**🎨 Logo de la App**")
+            logo_actual = obtener_logo()
+            if logo_actual:
+                st.image(logo_actual, width=100)
+            nuevo_logo = st.file_uploader("Subir nuevo logo", type=["png", "jpg"])
+            if nuevo_logo and st.button("Guardar Logo"):
+                logo_b64 = imagen_a_base64(nuevo_logo)
+                if guardar_logo(logo_b64):
+                    st.success("✅ Logo guardado!")
+                    st.rerun()
 
 # --- PANEL SUPERIOR ---
-ahora = datetime.now()
-dias = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
-meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-
 visitas = obtener_visitas()
 precio_dolar = obtener_precio_dolar()
 efemeride = obtener_efemerides()
@@ -622,86 +720,268 @@ efemeride = obtener_efemerides()
 st.markdown(f"""
 <div class="stats-panel">
     <span style="color: #FFD700;">⭐ {dias[ahora.weekday()]}, {ahora.day} de {meses[ahora.month-1]} de {ahora.year} ⭐</span><br>
-    <span style="color: white; font-size: 1.5em;">{ahora.strftime("%I:%M %p")}</span><br>
-    <span style="color: #FFD700;">👥 Visitas: {visitas:,} | 💵 Dolar: {precio_dolar:.2f} Bs</span>
+    <span style="color: white; font-size: 1.8em; font-weight: bold;">{ahora.strftime("%I:%M %p")}</span><br>
+    <span style="color: #FFD700;">👥 Visitas: {visitas:,} | 💵 Dolar BCV: {precio_dolar:.2f} Bs</span>
+</div>
+
+<div style="background: linear-gradient(135deg, #1a3a5c, #0a1a3a); padding: 15px; border-radius: 15px; border-left: 5px solid #FFD700; margin-bottom: 20px;">
+    <span style="color: #FFD700; font-weight: bold;">📅 EFEMERIDES DEL DIA</span><br>
+    <span style="color: white;">{efemeride}</span>
 </div>
 """, unsafe_allow_html=True)
 
 # --- CONTENIDO PRINCIPAL ---
-if menu == "Portada":
+if menu == "🏠 Portada":
     st.title("Santa Teresa al Dia")
-    st.markdown("### Ultimas Noticias")
+    st.markdown("### 📰 Ultimas Noticias")
     noticias = obtener_noticias()
     if not noticias.empty:
-        for _, n in noticias.head(4).iterrows():
-            st.info(f"**{n['titulo']}**\n\n{n['contenido'][:200]}...")
-            st.caption(f"{n['fecha_publicacion']} | {n['categoria']}")
+        for _, n in noticias.head(6).iterrows():
+            st.info(f"**{n['titulo']}**\n\n{n['contenido'][:300]}...")
+            st.caption(f"📅 {n['fecha_publicacion']} | 🏷️ {n['categoria']}")
             st.markdown("---")
     else:
         st.info("No hay noticias disponibles")
 
-elif menu == "Noticias":
+elif menu == "📰 Noticias":
     st.title("Noticias")
-    cat = st.selectbox("Filtrar", ["Todas", "Nacional", "Internacional", "Deportes", "Reportajes"])
-    noticias = obtener_noticias(cat if cat != "Todas" else None)
-    for _, n in noticias.iterrows():
-        st.markdown(f"### {n['titulo']}")
-        st.caption(f"{n['fecha_publicacion']} | {n['categoria']}")
-        st.write(n['contenido'])
-        if es_admin:
-            if st.button("Eliminar", key=f"del_{n['id']}"):
-                eliminar_noticia(n['id'])
-                st.rerun()
+    
+    tab_nac, tab_inter, tab_dep, tab_rep, tab_todas = st.tabs(["🇻🇪 Nacionales", "🌍 Internacionales", "⚽ Deportes", "📰 Reportajes", "📋 Todas"])
+    
+    with tab_nac:
+        noticias = obtener_noticias(categoria="Nacional")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_nac_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias Nacionales")
+    
+    with tab_inter:
+        noticias = obtener_noticias(categoria="Internacional")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_inter_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias Internacionales")
+    
+    with tab_dep:
+        noticias = obtener_noticias(categoria="Deportes")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_dep_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias de Deportes")
+    
+    with tab_rep:
+        noticias = obtener_noticias(categoria="Reportajes")
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_rep_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay Reportajes")
+    
+    with tab_todas:
+        noticias = obtener_noticias()
+        if not noticias.empty:
+            for _, n in noticias.iterrows():
+                st.markdown(f"### {n['titulo']}")
+                st.caption(f"📅 {n['fecha_publicacion']} | 🏷️ {n['categoria']}")
+                st.write(n['contenido'])
+                if es_admin:
+                    if st.button("🗑️ Eliminar", key=f"del_tod_{n['id']}"):
+                        eliminar_noticia(n['id'])
+                        st.rerun()
+                st.markdown("---")
+        else:
+            st.info("No hay noticias")
+
+elif menu == "🙏 Reflexiones":
+    st.title("🙏 Pan de Vida y Reflexiones")
+    
+    reflexion = obtener_reflexion_activa()
+    if reflexion is not None:
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(0,0,0,0.6), rgba(0,36,125,0.6)); 
+                    padding: 35px; border-radius: 20px; border-left: 8px solid #FFD700; text-align: center;">
+            <h2 style="color: #FFD700;">✨ {reflexion['titulo']} ✨</h2>
+            <p style="font-size: 1.3em;">{reflexion['contenido']}</p>
+            <p style="margin-top: 20px;"><i>— {reflexion['autor']}, {reflexion['fecha']}</i></p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("No hay reflexion activa para hoy")
+    
+    if es_admin:
         st.markdown("---")
+        st.markdown("### Reflexiones Anteriores")
+        reflexiones = obtener_reflexiones()
+        for _, r in reflexiones.iterrows():
+            with st.expander(f"{r['titulo']} - {r['fecha']}"):
+                st.write(r['contenido'])
 
-elif menu == "Reflexiones":
-    st.title("Reflexiones")
-    ref = obtener_reflexion_activa()
-    if ref:
-        st.markdown(f"### {ref['titulo']}")
-        st.write(ref['contenido'])
-        st.caption(f"{ref['autor']} - {ref['fecha']}")
+elif menu == "🎬 Multimedia":
+    st.title("🎬 Multimedia")
+    
+    tab_video, tab_audio, tab_radio = st.tabs(["🎥 Videos", "🎵 Musica", "📻 Radio Online"])
+    
+    with tab_video:
+        st.markdown("### 📺 Videos Destacados")
+        st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        st.video("https://www.youtube.com/watch?v=3Yh_6_zItPU")
+    
+    with tab_audio:
+        st.markdown("### 🎵 Musica para Disfrutar")
+        st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
+        st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3")
+    
+    with tab_radio:
+        st.markdown("### 📻 Radio Online")
+        st.markdown("**Escucha nuestra radio en vivo**")
+        st.audio("https://streaming.listen2myradio.com/example", format="audio/mp3")
+        st.caption("Radio Santa Teresa - 24/7 al aire")
 
-elif menu == "Multimedia":
-    st.title("Multimedia")
-    st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+elif menu == "🏪 Guia Comercial":
+    st.title("🏪 Guia Comercial de Santa Teresa")
+    st.markdown("""
+    <div style="text-align: center; padding: 50px; background: rgba(0,0,0,0.5); border-radius: 25px;">
+        <h2 style="color: #FFD700;">📱 Guia Comercial Almenar</h2>
+        <p>Encuentra comercios, servicios y promociones en Santa Teresa del Tuy</p>
+        <a href="https://williantuguiasantateresa.streamlit.app" target="_blank">
+            <button style="background: linear-gradient(135deg, #FFD700, #CF142B); 
+                           padding: 15px 35px; border-radius: 30px; border: none; 
+                           color: white; font-size: 1.2em; cursor: pointer; margin-top: 20px;">
+                🌐 Ir a la Guia Comercial
+            </button>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
-elif menu == "Guia Comercial":
-    st.title("Guia Comercial")
-    st.markdown("[Ir a la Guia Comercial](https://williantuguiasantateresa.streamlit.app)")
+elif menu == "📜 Ventana del Pasado":
+    st.title("📜 Ventana del Pasado")
+    st.markdown("*Recordar es vivir... Viajemos a traves de la historia de Santa Teresa*")
+    
+    registros = obtener_ventana_pasado()
+    if not registros.empty:
+        for _, r in registros.iterrows():
+            with st.container():
+                st.markdown(f"### 🏛️ {r['titulo']}")
+                st.caption(f"📅 {r['fecha_evento']}")
+                st.write(r['contenido'])
+                st.markdown("---")
+    else:
+        st.info("Proximamente mas contenido historico")
 
-elif menu == "Ventana del Pasado":
-    st.title("Ventana del Pasado")
-    for _, r in obtener_ventana().iterrows():
-        st.markdown(f"### {r['titulo']}")
-        st.caption(r['fecha_evento'])
-        st.write(r['contenido'])
+elif menu == "✍️ Cronicas Reales":
+    st.title("✍️ Cronicas Reales")
+    st.markdown("*Historias y testimonios de nuestra gente*")
+    
+    cronicas = obtener_cronicas()
+    if not cronicas.empty:
+        for _, c in cronicas.iterrows():
+            with st.expander(f"📖 {c['titulo']} - {c['lugar']} ({c['fecha']})"):
+                st.write(c['contenido'])
+                st.caption(f"Publicado por: {c['autor']}")
+    else:
+        st.info("No hay cronicas publicadas aun")
 
-elif menu == "Cronicas Reales":
-    st.title("Cronicas Reales")
-    for _, c in obtener_cronicas().iterrows():
-        with st.expander(c['titulo']):
-            st.write(c['contenido'])
+elif menu == "⚠️ Denuncias":
+    st.title("⚠️ Denuncias Ciudadanas")
+    st.markdown("*Todas las denuncias son anonimas y seran investigadas*")
+    
+    tab_den, tab_ver = st.tabs(["📝 Hacer Denuncia", "📋 Ver Denuncias"])
+    
+    with tab_den:
+        with st.form("form_denuncia"):
+            nombre = st.text_input("Tu nombre (puede ser anonimo)")
+            titulo = st.text_input("Titulo de la denuncia")
+            desc = st.text_area("Descripcion detallada", height=150)
+            ubic = st.text_input("Ubicacion del hecho")
+            if st.form_submit_button("🚨 Enviar Denuncia"):
+                if titulo and desc:
+                    if guardar_denuncia(nombre, titulo, desc, ubic):
+                        st.success("✅ Denuncia enviada. Las autoridades la revisaran.")
+                        st.balloons()
+                    else:
+                        st.error("❌ Error al enviar")
+                else:
+                    st.warning("⚠️ Titulo y descripcion son obligatorios")
+    
+    with tab_ver:
+        denuncias = obtener_denuncias()
+        if not denuncias.empty:
+            for _, d in denuncias.iterrows():
+                st.markdown(f"""
+                <div style="background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                    <strong>📌 {d['titulo']}</strong><br>
+                    <span style="color: #FFD700;">Estado: {d['estatus']}</span><br>
+                    <small>📍 {d['ubicacion']} | 📅 {d['fecha']}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No hay denuncias para mostrar")
 
-elif menu == "Denuncias":
-    st.title("Denuncias")
-    with st.form("denuncia"):
-        nombre = st.text_input("Tu nombre")
-        titulo = st.text_input("Titulo")
-        desc = st.text_area("Descripcion")
-        ubic = st.text_input("Ubicacion")
-        if st.form_submit_button("Enviar"):
-            guardar_denuncia(nombre, titulo, desc, ubic)
-            st.success("Denuncia enviada!")
-
-elif menu == "Opiniones":
-    st.title("Opiniones")
-    with st.form("opinion"):
-        usuario = st.text_input("Nombre")
-        comentario = st.text_area("Comentario")
-        if st.form_submit_button("Enviar"):
-            guardar_opinion(usuario, comentario, 5)
-            st.success("Opinion enviada!")
+elif menu == "💬 Opiniones":
+    st.title("💬 Opiniones de Nuestros Visitantes")
+    
+    tab_op, tab_ver = st.tabs(["💭 Dar Opinion", "📖 Ver Opiniones"])
+    
+    with tab_op:
+        with st.form("form_opinion"):
+            usuario = st.text_input("Tu nombre")
+            comentario = st.text_area("Tu opinion", height=100)
+            calificacion = st.slider("Calificacion", 1, 5, 5)
+            if st.form_submit_button("Enviar Opinion"):
+                if usuario and comentario:
+                    if guardar_opinion(usuario, comentario, calificacion):
+                        st.success("✅ Gracias por tu opinion!")
+                        st.balloons()
+                    else:
+                        st.error("❌ Error al enviar")
+                else:
+                    st.warning("⚠️ Nombre y comentario son obligatorios")
+    
+    with tab_ver:
+        opiniones = obtener_opiniones()
+        if not opiniones.empty:
+            for _, op in opiniones.iterrows():
+                estrellas = "⭐" * op['calificacion']
+                st.markdown(f"""
+                <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                    <strong>{op['usuario']}</strong> {estrellas}<br>
+                    "{op['comentario']}"<br>
+                    <small>📅 {op['fecha']}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No hay opiniones aun. ¡Se el primero en opinar!")
 
 # --- FOOTER ---
 st.markdown("""
