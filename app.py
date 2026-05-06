@@ -124,23 +124,23 @@ def reconstruir_tablas():
             )
             """))
             
-            # Tabla de videos
+            # Tabla de videos (con datos binarios en base64)
             s.execute(text("""
             CREATE TABLE videos (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
-                video_url TEXT,
+                video_data TEXT,
                 formato TEXT,
                 fecha TEXT
             )
             """))
             
-            # Tabla de musicas
+            # Tabla de musicas (con datos binarios en base64)
             s.execute(text("""
             CREATE TABLE musicas (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
-                audio_url TEXT,
+                audio_data TEXT,
                 formato TEXT,
                 fecha TEXT
             )
@@ -239,6 +239,78 @@ if 'tablas_reconstruidas' not in st.session_state:
     st.session_state.tablas_reconstruidas = True
 
 # ============================================
+# FUNCIONES DE CONVERSION A BASE64
+# ============================================
+def video_a_base64(file):
+    """Convierte un archivo de video a base64"""
+    if file:
+        try:
+            bytes_data = file.read()
+            # Limitar tamaño máximo (50 MB)
+            if len(bytes_data) > 50 * 1024 * 1024:
+                st.error("El video es muy grande (máximo 50 MB)")
+                return None
+            return base64.b64encode(bytes_data).decode()
+        except Exception as e:
+            st.error(f"Error al procesar video: {e}")
+            return None
+    return None
+
+def audio_a_base64(file):
+    """Convierte un archivo de audio a base64"""
+    if file:
+        try:
+            bytes_data = file.read()
+            # Limitar tamaño máximo (20 MB)
+            if len(bytes_data) > 20 * 1024 * 1024:
+                st.error("El audio es muy grande (máximo 20 MB)")
+                return None
+            return base64.b64encode(bytes_data).decode()
+        except Exception as e:
+            st.error(f"Error al procesar audio: {e}")
+            return None
+    return None
+
+def img_a_base64(file):
+    """Convierte una imagen a base64"""
+    if file:
+        try:
+            img = Image.open(file)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.thumbnail((800, 800))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=70)
+            return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+        except:
+            return None
+    return None
+
+def mostrar_video(video_data, formato):
+    """Muestra un video desde base64"""
+    try:
+        video_bytes = base64.b64decode(video_data)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
+            tmp.write(video_bytes)
+            tmp_path = tmp.name
+        st.video(tmp_path)
+        os.unlink(tmp_path)
+    except Exception as e:
+        st.error(f"Error al cargar video: {e}")
+
+def mostrar_audio(audio_data, formato):
+    """Muestra un audio desde base64"""
+    try:
+        audio_bytes = base64.b64decode(audio_data)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+        st.audio(tmp_path)
+        os.unlink(tmp_path)
+    except Exception as e:
+        st.error(f"Error al cargar audio: {e}")
+
+# ============================================
 # FUNCION DOLAR BCV
 # ============================================
 def get_dolar():
@@ -299,27 +371,13 @@ def save_logo(url):
     except:
         return False
 
-def img_to_base64(file):
-    if file:
-        try:
-            img = Image.open(file)
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            img.thumbnail((800, 800))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=70)
-            return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
-        except:
-            return None
-    return None
-
 # ============================================
 # NOTICIAS
 # ============================================
 def add_noticia(titulo, categoria, contenido, imagen):
     try:
         ahora = get_fecha_hora_venezuela()
-        img_url = img_to_base64(imagen) if imagen else None
+        img_url = img_a_base64(imagen) if imagen else None
         with conn.session as s:
             s.execute(text("""
                 INSERT INTO noticias (titulo, categoria, contenido, imagen_url, fecha, autor)
@@ -355,7 +413,7 @@ def delete_noticia(id_):
 def add_negocio(nombre, categoria, resena, direccion, telefono, horario, imagen):
     try:
         ahora = get_fecha_hora_venezuela()
-        img_url = img_to_base64(imagen) if imagen else None
+        img_url = img_a_base64(imagen) if imagen else None
         with conn.session as s:
             s.execute(text("""
                 INSERT INTO negocios (nombre, categoria, resena, imagen_url, direccion, telefono, horario, fecha)
@@ -458,19 +516,24 @@ def delete_cronica(id_):
         return False
 
 # ============================================
-# VIDEOS
+# VIDEOS (SUBIR DESDE LAPTOP)
 # ============================================
-def add_video(titulo, url_video):
+def add_video(titulo, archivo_video):
     try:
         ahora = get_fecha_hora_venezuela()
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO videos (titulo, video_url, formato, fecha)
-                VALUES (:t, :u, 'mp4', :f)
-            """), {"t": titulo, "u": url_video, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
-    except:
+        video_data = video_a_base64(archivo_video)
+        if video_data:
+            formato = archivo_video.type.split("/")[-1] if archivo_video.type else "mp4"
+            with conn.session as s:
+                s.execute(text("""
+                    INSERT INTO videos (titulo, video_data, formato, fecha)
+                    VALUES (:t, :v, :fmt, :f)
+                """), {"t": titulo, "v": video_data, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
+                s.commit()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error al subir video: {e}")
         return False
 
 def get_videos():
@@ -489,19 +552,24 @@ def delete_video(id_):
         return False
 
 # ============================================
-# MUSICA
+# MUSICA (SUBIR DESDE LAPTOP)
 # ============================================
-def add_musica(titulo, url_audio):
+def add_musica(titulo, archivo_audio):
     try:
         ahora = get_fecha_hora_venezuela()
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO musicas (titulo, audio_url, formato, fecha)
-                VALUES (:t, :u, 'mp3', :f)
-            """), {"t": titulo, "u": url_audio, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
-    except:
+        audio_data = audio_a_base64(archivo_audio)
+        if audio_data:
+            formato = archivo_audio.type.split("/")[-1] if archivo_audio.type else "mp3"
+            with conn.session as s:
+                s.execute(text("""
+                    INSERT INTO musicas (titulo, audio_data, formato, fecha)
+                    VALUES (:t, :a, :fmt, :f)
+                """), {"t": titulo, "a": audio_data, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
+                s.commit()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error al subir musica: {e}")
         return False
 
 def get_musicas():
@@ -907,7 +975,7 @@ elif menu == "📜 Cronicas":
     else:
         st.info("No hay cronicas disponibles")
 
-# --- MULTIMEDIA ---
+# --- MULTIMEDIA (CON SUBIDA DESDE LAPTOP) ---
 elif menu == "🎬 Multimedia":
     st.title("🎬 Multimedia")
     
@@ -918,22 +986,22 @@ elif menu == "🎬 Multimedia":
         if not videos.empty:
             for _, v in videos.iterrows():
                 st.markdown(f"**{v['titulo']}**")
-                st.video(v['video_url'])
+                mostrar_video(v['video_data'], v['formato'])
                 st.caption(f"Subido: {v['fecha']}")
                 st.markdown("---")
         else:
-            st.info("No hay videos disponibles")
+            st.info("No hay videos disponibles. Sube videos desde el Panel de Control.")
     
     with tab_musica:
         musicas = get_musicas()
         if not musicas.empty:
             for _, m in musicas.iterrows():
                 st.markdown(f"**{m['titulo']}**")
-                st.audio(m['audio_url'])
+                mostrar_audio(m['audio_data'], m['formato'])
                 st.caption(f"Agregado: {m['fecha']}")
                 st.markdown("---")
         else:
-            st.info("No hay musica disponible")
+            st.info("No hay musica disponible. Sube musica desde el Panel de Control.")
     
     with tab_radio:
         st.markdown("### 📻 Radio Online")
@@ -1157,18 +1225,19 @@ if es_admin:
         else:
             st.info("No hay crónicas")
     
-    # --- ADMIN: VIDEOS ---
+    # --- ADMIN: VIDEOS (SUBIR DESDE LAPTOP) ---
     elif admin_option == "🎬 Videos":
         st.title("🎬 Gestionar Videos")
         
         with st.form("form_video"):
-            st.subheader("➕ Agregar Video (URL)")
+            st.subheader("➕ Subir Video desde tu PC")
             titulo = st.text_input("Título del Video")
-            url_video = st.text_input("URL del video", placeholder="https://ejemplo.com/video.mp4 o URL de YouTube")
-            if st.form_submit_button("🎬 Agregar Video"):
-                if titulo and url_video:
-                    if add_video(titulo, url_video):
-                        st.success("✅ Video agregado!")
+            archivo_video = st.file_uploader("Seleccionar video (MP4, AVI, MOV, MKV)", type=["mp4", "avi", "mov", "mkv"])
+            st.info("📌 Tamaño máximo: 50 MB. El video se almacenará en la base de datos.")
+            if st.form_submit_button("🎬 Subir Video"):
+                if titulo and archivo_video:
+                    if add_video(titulo, archivo_video):
+                        st.success("✅ Video subido exitosamente!")
                         st.rerun()
                 else:
                     st.warning("⚠️ Complete los campos")
@@ -1179,25 +1248,26 @@ if es_admin:
         if not videos.empty:
             for _, v in videos.iterrows():
                 with st.expander(v['titulo']):
-                    st.video(v['video_url'])
+                    mostrar_video(v['video_data'], v['formato'])
                     if st.button("🗑️ Eliminar", key=f"del_vid_{v['id']}"):
                         delete_video(v['id'])
                         st.rerun()
         else:
-            st.info("No hay videos")
+            st.info("No hay videos subidos")
     
-    # --- ADMIN: MUSICA ---
+    # --- ADMIN: MUSICA (SUBIR DESDE LAPTOP) ---
     elif admin_option == "🎵 Musica":
         st.title("🎵 Gestionar Música")
         
         with st.form("form_musica"):
-            st.subheader("➕ Agregar Canción (URL)")
+            st.subheader("➕ Subir Música desde tu PC")
             titulo = st.text_input("Título de la Canción")
-            url_audio = st.text_input("URL del audio", placeholder="https://ejemplo.com/cancion.mp3")
-            if st.form_submit_button("🎵 Agregar Canción"):
-                if titulo and url_audio:
-                    if add_musica(titulo, url_audio):
-                        st.success("✅ Canción agregada!")
+            archivo_audio = st.file_uploader("Seleccionar audio (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
+            st.info("📌 Tamaño máximo: 20 MB. El audio se almacenará en la base de datos.")
+            if st.form_submit_button("🎵 Subir Música"):
+                if titulo and archivo_audio:
+                    if add_musica(titulo, archivo_audio):
+                        st.success("✅ Música subida exitosamente!")
                         st.rerun()
                 else:
                     st.warning("⚠️ Complete los campos")
@@ -1208,12 +1278,12 @@ if es_admin:
         if not musicas.empty:
             for _, m in musicas.iterrows():
                 with st.expander(m['titulo']):
-                    st.audio(m['audio_url'])
+                    mostrar_audio(m['audio_data'], m['formato'])
                     if st.button("🗑️ Eliminar", key=f"del_mus_{m['id']}"):
                         delete_musica(m['id'])
                         st.rerun()
         else:
-            st.info("No hay música")
+            st.info("No hay música subida")
     
     # --- ADMIN: DENUNCIAS ---
     elif admin_option == "⚠️ Denuncias":
@@ -1287,7 +1357,7 @@ if es_admin:
                 st.image(logo, width=150)
             nuevo_logo = st.file_uploader("Subir nuevo logo", type=["png", "jpg"])
             if nuevo_logo and st.button("💾 Guardar Logo"):
-                logo_b64 = img_to_base64(nuevo_logo)
+                logo_b64 = img_a_base64(nuevo_logo)
                 if logo_b64:
                     save_logo(logo_b64)
                     st.success("Logo guardado!")
@@ -1308,6 +1378,8 @@ if es_admin:
             st.metric("Total de Negocios", len(get_negocios()))
             st.metric("Total de Crónicas", len(get_cronicas()))
             st.metric("Total de Denuncias", len(get_denuncias()))
+            st.metric("Total de Videos", len(get_videos()))
+            st.metric("Total de Canciones", len(get_musicas()))
 
 # ============================================
 # FOOTER - PLACA DE BRONCE
