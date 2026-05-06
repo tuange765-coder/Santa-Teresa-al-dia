@@ -52,27 +52,15 @@ def init_connection():
 conn = init_connection()
 
 # ============================================
-# RECONSTRUIR TABLAS (SOLO UNA VEZ)
+# CREAR TABLAS SOLO SI NO EXISTEN (NO RECONSTRUIR)
 # ============================================
-def reconstruir_tablas():
+def crear_tablas_si_no_existen():
+    """Crea las tablas solo si no existen - NO BORRA DATOS EXISTENTES"""
     try:
         with conn.session as s:
-            # Eliminar tablas existentes
-            s.execute(text("DROP TABLE IF EXISTS noticias CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS negocios CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS reflexiones CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS cronicas CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS videos CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS musicas CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS denuncias CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS opiniones CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS visitas CASCADE"))
-            s.execute(text("DROP TABLE IF EXISTS configuracion CASCADE"))
-            s.commit()
-            
             # Tabla de noticias
             s.execute(text("""
-            CREATE TABLE noticias (
+            CREATE TABLE IF NOT EXISTS noticias (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 categoria TEXT,
@@ -85,7 +73,7 @@ def reconstruir_tablas():
             
             # Tabla de negocios
             s.execute(text("""
-            CREATE TABLE negocios (
+            CREATE TABLE IF NOT EXISTS negocios (
                 id SERIAL PRIMARY KEY,
                 nombre TEXT,
                 categoria TEXT,
@@ -100,7 +88,7 @@ def reconstruir_tablas():
             
             # Tabla de reflexiones
             s.execute(text("""
-            CREATE TABLE reflexiones (
+            CREATE TABLE IF NOT EXISTS reflexiones (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 contenido TEXT,
@@ -113,7 +101,7 @@ def reconstruir_tablas():
             
             # Tabla de cronicas
             s.execute(text("""
-            CREATE TABLE cronicas (
+            CREATE TABLE IF NOT EXISTS cronicas (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 contenido TEXT,
@@ -126,7 +114,7 @@ def reconstruir_tablas():
             
             # Tabla de videos (con datos binarios en base64)
             s.execute(text("""
-            CREATE TABLE videos (
+            CREATE TABLE IF NOT EXISTS videos (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 video_data TEXT,
@@ -137,7 +125,7 @@ def reconstruir_tablas():
             
             # Tabla de musicas (con datos binarios en base64)
             s.execute(text("""
-            CREATE TABLE musicas (
+            CREATE TABLE IF NOT EXISTS musicas (
                 id SERIAL PRIMARY KEY,
                 titulo TEXT,
                 audio_data TEXT,
@@ -148,7 +136,7 @@ def reconstruir_tablas():
             
             # Tabla de denuncias
             s.execute(text("""
-            CREATE TABLE denuncias (
+            CREATE TABLE IF NOT EXISTS denuncias (
                 id SERIAL PRIMARY KEY,
                 denunciante TEXT,
                 titulo TEXT,
@@ -161,7 +149,7 @@ def reconstruir_tablas():
             
             # Tabla de opiniones
             s.execute(text("""
-            CREATE TABLE opiniones (
+            CREATE TABLE IF NOT EXISTS opiniones (
                 id SERIAL PRIMARY KEY,
                 usuario TEXT,
                 comentario TEXT,
@@ -173,7 +161,7 @@ def reconstruir_tablas():
             
             # Tabla de visitas (inicia en 1500)
             s.execute(text("""
-            CREATE TABLE visitas (
+            CREATE TABLE IF NOT EXISTS visitas (
                 id INTEGER PRIMARY KEY,
                 conteo INTEGER DEFAULT 1500
             )
@@ -181,62 +169,66 @@ def reconstruir_tablas():
             
             # Tabla de configuracion
             s.execute(text("""
-            CREATE TABLE configuracion (
+            CREATE TABLE IF NOT EXISTS configuracion (
                 id INTEGER PRIMARY KEY,
                 logo_url TEXT,
                 dolar REAL DEFAULT 489.55
             )
             """))
             
-            # Insertar datos iniciales
-            s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 1500)"))
-            s.execute(text("INSERT INTO configuracion (id, logo_url, dolar) VALUES (1, NULL, 489.55)"))
+            # Insertar datos iniciales solo si no existen (para que no se pierdan)
+            res = s.execute(text("SELECT COUNT(*) FROM visitas WHERE id = 1")).fetchone()
+            if res[0] == 0:
+                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 1500)"))
             
-            # Insertar cronicas iniciales de Venezuela
-            cronicas_iniciales = [
-                ("Los Valles del Tuy", "Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.", "Cronista", "1781", "Valles del Tuy", "Miranda"),
-                ("La Batalla de Carabobo", "El 24 de junio de 1821, el Ejército Patriota liderado por Simón Bolívar derrotó a las fuerzas realistas, sellando la independencia de Venezuela.", "Cronista", "1821", "Campo de Carabobo", "Carabobo"),
-                ("Nacimiento del Libertador", "Simón José Antonio de la Santísima Trinidad Bolívar Palacios Ponte y Blanco nació en Caracas el 24 de julio de 1783.", "Cronista", "1783", "Caracas", "Distrito Capital"),
-                ("La Guerra Federal", "Entre 1859 y 1863, Venezuela vivió una cruenta guerra civil que enfrentó a conservadores y liberales.", "Cronista", "1859", "Todo el territorio nacional", "Varios estados")
-            ]
-            for c in cronicas_iniciales:
-                s.execute(text("INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar, estado) VALUES (:t, :c, :a, :f, :l, :e)"),
-                         {"t": c[0], "c": c[1], "a": c[2], "f": c[3], "l": c[4], "e": c[5]})
+            res2 = s.execute(text("SELECT COUNT(*) FROM configuracion WHERE id = 1")).fetchone()
+            if res2[0] == 0:
+                s.execute(text("INSERT INTO configuracion (id, logo_url, dolar) VALUES (1, NULL, 489.55)"))
             
-            # Insertar reflexion inicial (Reina Valera 1960)
-            s.execute(text("""
-                INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                VALUES ('La Paz de Dios', 
-                'Querido hermano, no te angusties por nada. En lugar de eso, presenta tus peticiones delante de Dios. Él te dará una paz que no puedes explicar, pero que cuidará tu corazón y tus pensamientos.', 
-                'Filipenses 4:6-7 (Reina Valera 1960)', 
-                'Ministerio Santa Teresa', 
-                '2026-01-01', 
-                TRUE)
-            """))
+            res3 = s.execute(text("SELECT COUNT(*) FROM cronicas")).fetchone()
+            if res3[0] == 0:
+                cronicas_iniciales = [
+                    ("Los Valles del Tuy", "Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.", "Cronista", "1781", "Valles del Tuy", "Miranda"),
+                    ("La Batalla de Carabobo", "El 24 de junio de 1821, el Ejército Patriota liderado por Simón Bolívar derrotó a las fuerzas realistas, sellando la independencia de Venezuela.", "Cronista", "1821", "Campo de Carabobo", "Carabobo"),
+                    ("Nacimiento del Libertador", "Simón José Antonio de la Santísima Trinidad Bolívar Palacios Ponte y Blanco nació en Caracas el 24 de julio de 1783.", "Cronista", "1783", "Caracas", "Distrito Capital")
+                ]
+                for c in cronicas_iniciales:
+                    s.execute(text("INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar, estado) VALUES (:t, :c, :a, :f, :l, :e)"),
+                             {"t": c[0], "c": c[1], "a": c[2], "f": c[3], "l": c[4], "e": c[5]})
             
-            # Insertar noticias iniciales
-            fecha_actual = datetime.now().strftime("%d/%m/%Y")
-            noticias_iniciales = [
-                ("Bienvenidos a Santa Teresa al Dia", "Nacional", "Un espacio para mantenernos informados y conectados como comunidad.", fecha_actual, "Admin"),
-                ("Santa Teresa: Tierra de progreso", "Nacional", "Nuestra ciudad sigue creciendo y desarrollándose cada día.", fecha_actual, "Admin"),
-                ("Selección Venezolana se prepara", "Deportes", "La Vinotinto continúa su preparación para los próximos compromisos internacionales.", fecha_actual, "Admin"),
-                ("Situación internacional", "Internacional", "Análisis de los principales sucesos que afectan la economía global.", fecha_actual, "Admin")
-            ]
-            for n in noticias_iniciales:
-                s.execute(text("INSERT INTO noticias (titulo, categoria, contenido, fecha, autor) VALUES (:t, :c, :cont, :f, :a)"),
-                         {"t": n[0], "c": n[1], "cont": n[2], "f": n[3], "a": n[4]})
+            res4 = s.execute(text("SELECT COUNT(*) FROM reflexiones")).fetchone()
+            if res4[0] == 0:
+                s.execute(text("""
+                    INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
+                    VALUES ('La Paz de Dios', 
+                    'Querido hermano, no te angusties por nada. En lugar de eso, presenta tus peticiones delante de Dios. Él te dará una paz que no puedes explicar, pero que cuidará tu corazón y tus pensamientos.', 
+                    'Filipenses 4:6-7 (Reina Valera 1960)', 
+                    'Ministerio Santa Teresa', 
+                    '2026-01-01', 
+                    TRUE)
+                """))
+            
+            res5 = s.execute(text("SELECT COUNT(*) FROM noticias")).fetchone()
+            if res5[0] == 0:
+                fecha_actual = datetime.now().strftime("%d/%m/%Y")
+                noticias_iniciales = [
+                    ("Bienvenidos a Santa Teresa al Dia", "Nacional", "Un espacio para mantenernos informados y conectados como comunidad.", fecha_actual, "Admin"),
+                    ("Santa Teresa: Tierra de progreso", "Nacional", "Nuestra ciudad sigue creciendo y desarrollándose cada día.", fecha_actual, "Admin"),
+                    ("Selección Venezolana se prepara", "Deportes", "La Vinotinto continúa su preparación para los próximos compromisos internacionales.", fecha_actual, "Admin"),
+                    ("Situación internacional", "Internacional", "Análisis de los principales sucesos que afectan la economía global.", fecha_actual, "Admin")
+                ]
+                for n in noticias_iniciales:
+                    s.execute(text("INSERT INTO noticias (titulo, categoria, contenido, fecha, autor) VALUES (:t, :c, :cont, :f, :a)"),
+                             {"t": n[0], "c": n[1], "cont": n[2], "f": n[3], "a": n[4]})
             
             s.commit()
-            st.success("✅ Tablas reconstruidas correctamente")
             return True
     except Exception as e:
-        st.error(f"Error al reconstruir tablas: {e}")
+        st.error(f"Error al crear tablas: {e}")
         return False
 
-# Ejecutar reconstruccion (solo se ejecutará una vez)
-if 'tablas_reconstruidas' not in st.session_state:
-    reconstruir_tablas()
-    st.session_state.tablas_reconstruidas = True
+# Ejecutar creacion de tablas (SOLO UNA VEZ, sin borrar datos)
+crear_tablas_si_no_existen()
 
 # ============================================
 # FUNCIONES DE CONVERSION A BASE64
@@ -246,7 +238,6 @@ def video_a_base64(file):
     if file:
         try:
             bytes_data = file.read()
-            # Limitar tamaño máximo (50 MB)
             if len(bytes_data) > 50 * 1024 * 1024:
                 st.error("El video es muy grande (máximo 50 MB)")
                 return None
@@ -261,7 +252,6 @@ def audio_a_base64(file):
     if file:
         try:
             bytes_data = file.read()
-            # Limitar tamaño máximo (20 MB)
             if len(bytes_data) > 20 * 1024 * 1024:
                 st.error("El audio es muy grande (máximo 20 MB)")
                 return None
@@ -516,7 +506,7 @@ def delete_cronica(id_):
         return False
 
 # ============================================
-# VIDEOS (SUBIR DESDE LAPTOP)
+# VIDEOS (SUBIR DESDE LAPTOP - PERSISTENTE)
 # ============================================
 def add_video(titulo, archivo_video):
     try:
@@ -552,7 +542,7 @@ def delete_video(id_):
         return False
 
 # ============================================
-# MUSICA (SUBIR DESDE LAPTOP)
+# MUSICA (SUBIR DESDE LAPTOP - PERSISTENTE)
 # ============================================
 def add_musica(titulo, archivo_audio):
     try:
@@ -975,7 +965,7 @@ elif menu == "📜 Cronicas":
     else:
         st.info("No hay cronicas disponibles")
 
-# --- MULTIMEDIA (CON SUBIDA DESDE LAPTOP) ---
+# --- MULTIMEDIA ---
 elif menu == "🎬 Multimedia":
     st.title("🎬 Multimedia")
     
@@ -1225,7 +1215,7 @@ if es_admin:
         else:
             st.info("No hay crónicas")
     
-    # --- ADMIN: VIDEOS (SUBIR DESDE LAPTOP) ---
+    # --- ADMIN: VIDEOS (SUBIR DESDE LAPTOP - PERSISTENTE) ---
     elif admin_option == "🎬 Videos":
         st.title("🎬 Gestionar Videos")
         
@@ -1233,7 +1223,7 @@ if es_admin:
             st.subheader("➕ Subir Video desde tu PC")
             titulo = st.text_input("Título del Video")
             archivo_video = st.file_uploader("Seleccionar video (MP4, AVI, MOV, MKV)", type=["mp4", "avi", "mov", "mkv"])
-            st.info("📌 Tamaño máximo: 50 MB. El video se almacenará en la base de datos.")
+            st.info("📌 Tamaño máximo: 50 MB. El video se almacena permanentemente en la base de datos.")
             if st.form_submit_button("🎬 Subir Video"):
                 if titulo and archivo_video:
                     if add_video(titulo, archivo_video):
@@ -1255,7 +1245,7 @@ if es_admin:
         else:
             st.info("No hay videos subidos")
     
-    # --- ADMIN: MUSICA (SUBIR DESDE LAPTOP) ---
+    # --- ADMIN: MUSICA (SUBIR DESDE LAPTOP - PERSISTENTE) ---
     elif admin_option == "🎵 Musica":
         st.title("🎵 Gestionar Música")
         
@@ -1263,7 +1253,7 @@ if es_admin:
             st.subheader("➕ Subir Música desde tu PC")
             titulo = st.text_input("Título de la Canción")
             archivo_audio = st.file_uploader("Seleccionar audio (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
-            st.info("📌 Tamaño máximo: 20 MB. El audio se almacenará en la base de datos.")
+            st.info("📌 Tamaño máximo: 20 MB. El audio se almacena permanentemente en la base de datos.")
             if st.form_submit_button("🎵 Subir Música"):
                 if titulo and archivo_audio:
                     if add_musica(titulo, archivo_audio):
