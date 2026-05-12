@@ -24,8 +24,6 @@ def is_mobile():
 mobile_device = is_mobile()
 
 # --- CONEXION A NEON (POSTGRESQL) ---
-# NOTA: Las credenciales se manejan SOLO a través de st.secrets de Streamlit Cloud
-# Nunca se exponen en el código
 conn = None
 
 try:
@@ -397,30 +395,7 @@ input, textarea, [data-baseweb="select"] { background-color: #ffffff; color: #00
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCION PARA COPIAR LINK ---
-def copy_link_js(url):
-    """Genera JavaScript para copiar el link al portapapeles"""
-    return f"""
-    <script>
-    function copyToClipboard() {{
-        navigator.clipboard.writeText("{url}");
-        alert("✅ Link copiado al portapapeles");
-    }}
-    </script>
-    <button onclick="copyToClipboard()" style="
-        background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
-        border: none;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 10px;
-        font-weight: bold;
-        cursor: pointer;
-        width: 100%;
-    ">📋 COPIAR LINK</button>
-    """
-
 # --- PANEL LATERAL (SOLO PARA ADMIN EN ESCRITORIO) ---
-# El panel de administración SOLO aparece en escritorio y con la clave correcta
 if not mobile_device:
     with st.sidebar:
         try:
@@ -431,7 +406,6 @@ if not mobile_device:
             pass
         st.title("Venezuela Gestion")
         
-        # Solo mostrar acceso administrador en desktop
         with st.expander("🔐 Acceso Administrador"):
             clave_admin = st.text_input("Clave:", type="password", key="admin_key")
             if clave_admin == "Juan*316*":
@@ -725,7 +699,7 @@ if not mobile_device:
                     except Exception as e:
                         st.info("Tabla de noticias creada correctamente")
 else:
-    # En móvil, el sidebar solo muestra información básica, sin administración
+    # En móvil, el sidebar solo muestra información básica
     with st.sidebar:
         try:
             logo_res = conn.query("SELECT logo_data FROM configuracion WHERE id = 1", ttl=0)
@@ -821,7 +795,6 @@ st.markdown(f'''
 st.markdown("---")
 st.subheader("📢 ¡Comparte esta guía!")
 
-# URL de la app (actualizada a tu dominio)
 APP_URL = "https://williantuguiasantateresa.streamlit.app/"
 whatsapp_url = f"https://api.whatsapp.com/send?text=📱 *Guía Comercial de Santa Teresa*%0A%0AEncuentra comercios, servicios y más en un solo lugar.%0A%0A🔗 {APP_URL}"
 
@@ -837,7 +810,6 @@ with col_share1:
     ''', unsafe_allow_html=True)
 
 with col_share2:
-    # Botón para copiar link con JavaScript
     st.markdown(f'''
     <div style="text-align: center;">
         <button onclick="navigator.clipboard.writeText('{APP_URL}'); alert('✅ Link copiado al portapapeles');" style="
@@ -875,7 +847,8 @@ try:
                 with col_n2:
                     st.markdown(f"**{noticia['titulo']}**")
                     st.caption(f"Categoría: {noticia['categoria']} | Fecha: {noticia['fecha']} | Por: {noticia['autor']}")
-                    st.write(noticia['contenido'][:200] + "..." if len(noticia['contenido']) > 200 else noticia['contenido'])
+                    contenido_corto = noticia['contenido'][:200] + "..." if len(noticia['contenido']) > 200 else noticia['contenido']
+                    st.write(contenido_corto)
                 st.divider()
     else:
         st.info("📢 Pronto tendremos noticias para ti")
@@ -932,8 +905,9 @@ for i, tab in enumerate(tabs_main):
 
                         col_img, col_info = st.columns([1, 2])
                         with col_img:
-                            if isinstance(r['foto_url'], str) and (r['foto_url'].startswith('http') or r['foto_url'].startswith('data:image')):
-                                st.image(r['foto_url'], use_container_width=True, caption="Foto Principal")
+                            foto_url = r['foto_url']
+                            if isinstance(foto_url, str) and (foto_url.startswith('http') or foto_url.startswith('data:image')):
+                                st.image(foto_url, use_container_width=True, caption="Foto Principal")
                             
                             extras = todas_fotos[todas_fotos['comercio_id'] == r['id']]
                             if not extras.empty:
@@ -945,25 +919,12 @@ for i, tab in enumerate(tabs_main):
 
                         with col_info:
                             ubicacion_val = r['ubicacion'] if r['ubicacion'] is not None else "No especificada"
-                            st.write(f"**📍 Ubicacion:** {ubic:
-                                        pass
-
-                        with col_info:
-                            ubicacion_val = r['ubicacion'] if r['acion_val}")
-                            if r['maps_url']:
-                                st.link_button("🗺️ IR A ESTA UBICACION (Google Maps)", r['maps_url'], type="primary", use_container_widthubicacion'] is not None else "No especificada"
                             st.write(f"**📍 Ubicacion:** {ubicacion_val}")
-                            if r['maps_url']:
-                                st.link_button("🗺️ IR A ESTA UBICACION (Google Maps)", r['maps_url'], type="primary", use_container_width=True)
-                            try:
-                                estrellas_w_val = int(r['estrellas=True)
+                            maps_url = r['maps_url']
+                            if maps_url:
+                                st.link_button("🗺️ IR A ESTA UBICACION (Google Maps)", maps_url, type="primary", use_container_width=True)
                             try:
                                 estrellas_w_val = int(r['estrellas_w']) if r['estrellas_w'] is not None and str(r['estrellas_w']).isdigit() else 0
-                                st.write(f"**⭐ Calificacion Willian:** {'⭐' * estrellas_w_val}")
-                            except:
-                                st.write(f"**⭐ Calificacion Willian:** ")
-                            
-                            resenna_val = r['resenna_willian'] if r['resenna_willian'] is not None else "_w']) if r['estrellas_w'] is not None and str(r['estrellas_w']).isdigit() else 0
                                 st.write(f"**⭐ Calificacion Willian:** {'⭐' * estrellas_w_val}")
                             except:
                                 st.write(f"**⭐ Calificacion Willian:** ")
@@ -975,111 +936,53 @@ for i, tab in enumerate(tabs_main):
                                 op_df = todas_opiniones[todas_opiniones['comercio_id'] == r['id']]
                                 for _, op in op_df.iterrows():
                                     try:
-                                        estrellas_u_val = int(op['estrellas_u']) if op['estrellas_u'] is not None andSin reseña"
-                            st.info(f"**📝 Reseña de Willian:** {resenna_val}")
-                            st.markdown("---")
-                            if not todas_opiniones.empty:
-                                op_df = todas_opiniones[todas_opiniones['comercio_id'] == r['id']]
-                                for _, op in op_df.iterrows():
-                                    try:
                                         estrellas_u_val = int(op['estrellas_u']) if op['estrellas_u'] is not None and str(op['estrellas_u']).isdigit() else 0
-                                        st.markdown(f"<div style='border-bottom: 1px solid #444; padding: 5px;'><b>👤 {op['usuario']}</b>: {op['comentario']} ({'⭐'*estrellas_u_val})</div>", unsafe_allow_html=True)
-                                    except:
-                                        st.markdown(f"<div style='border-bottom: 1px solid #444 str(op['estrellas_u']).isdigit() else 0
-                                        st.markdown(f"<div style='border-bottom: 1px solid #444; padding: 5px;'><b>👤 {op['usuario']}</b>: {op['comentario']} ({'⭐'*estrellas_u_val})</div>", unsafe_allow_html=True)
+                                        st.markdown(f"<div style='border-bottom: 1px solid #444; padding: 5px;'><b>👤 {op['usuario']}</b>: {op['comentario']} ({'⭐' * estrellas_u_val})</div>", unsafe_allow_html=True)
                                     except:
                                         st.markdown(f"<div style='border-bottom: 1px solid #444; padding: 5px;'><b>👤 {op['usuario']}</b>: {op['comentario']}</div>", unsafe_allow_html=True)
 
-                        st.markdown("; padding: 5px;'><b>👤 {op['usuario']}</b>: {op['comentario']}</div>", unsafe_allow_html=True)
-
                         st.markdown("##### 💬 Deja tu opinion")
-                        unique_id = str(uuid.uuid4##### 💬 Deja tu opinion")
                         unique_id = str(uuid.uuid4()).replace('-', '')[:8]
-                        form_key = f"opin()).replace('-', '')[:8]
-                        form_key = f"opinion_form_{r['id']}_{ion_form_{r['id']}_{idx}_{i}_{unique_ididx}_{i}_{unique_id}"
-                        with st.form(key=form_key):
-                            op_usuario = st.text_input("Tu nombre",}"
-                        with st.form(key=form_key):
-                            op_usuario = st.text_input("Tu nombre", key=f"op_user_{r['id'] key=f"op_user_{r['id']}_{idx}_{i}_{unique_id}")
-}_{idx}_{i}_{unique_id}")
-                            op_comentario = st.text_area("Comentario", key=f"op_com_{r['id']                            op_comentario = st.text_area("Comentario", key=f"op_com_{r['id']}_{idx}_{i}_{unique_id}")
-                            op}_{idx}_{i}_{unique_id}")
-                            op_estrellas = st.slider("Tu calificacion", 1, 5, 5, key=f"op_est_{r['id']}_{idx}_{i}_{unique_id_estrellas = st.slider("Tu calificacion", 1, 5, 5, key=f"op_est_{r['id']}_{idx}_{i}_{unique_id}")
-                            if st.form_submit_button("📨 Enviar opinion"):
-                                if op_usuario.strip() and op_comentario.strip():
-                                    fecha_op = ahora_vzla.strftime("%d}")
+                        with st.form(key=f"opinion_form_{r['id']}_{idx}_{i}_{unique_id}"):
+                            op_usuario = st.text_input("Tu nombre", key=f"op_user_{r['id']}_{idx}_{i}_{unique_id}")
+                            op_comentario = st.text_area("Comentario", key=f"op_com_{r['id']}_{idx}_{i}_{unique_id}")
+                            op_estrellas = st.slider("Tu calificacion", 1, 5, 5, key=f"op_est_{r['id']}_{idx}_{i}_{unique_id}")
                             if st.form_submit_button("📨 Enviar opinion"):
                                 if op_usuario.strip() and op_comentario.strip():
                                     fecha_op = ahora_vzla.strftime("%d/%m/%Y")
                                     try:
-                                        with conn.session/%m/%Y")
-                                    try:
                                         with conn.session as s:
-                                            s.execute as s:
                                             s.execute(text(
-                                                "INSERT INTO opiniones (comercio_id, usuario, comentario(text(
-                                                "INSERT INTO opiniones (comercio_id, usuario, comentario, estrellas, estrellas_u,_u, fecha) fecha) "
-                                                "VALUES (:cid, :u, "
-                                                "VALUES (:cid, :u, :c, :e, :c, :e, :f)"
-                                            ), {"cid": int(r['id']), :f)"
-                                            ), {"cid": int(r['id']), "u": op_usuario "u": op_usuario.strip(), "c": op.strip(), "c": op_comentario.strip(), "_comentario.strip(), "e": op_estrellas, "fe": op_estrellas, "f": fecha_op})
-                                            s": fecha_op})
+                                                "INSERT INTO opiniones (comercio_id, usuario, comentario, estrellas_u, fecha) "
+                                                "VALUES (:cid, :u, :c, :e, :f)"
+                                            ), {"cid": int(r['id']), "u": op_usuario.strip(), "c": op_comentario.strip(), "e": op_estrellas, "f": fecha_op})
                                             s.commit()
                                         st.success("✅ Opinion enviada! Gracias.")
                                         st.rerun()
-                                    except Exception.commit()
-                                        st.success("✅ Opinion enviada! Gracias.")
-                                        st.rerun()
                                     except Exception as e:
-                                        st as e:
-                                        st.error(f"Error al guard.error(f"Error al guardar opinion: {e}")
-ar opinion: {e}")
+                                        st.error(f"Error al guardar opinion: {e}")
                                 else:
-                                    st.warning("✏️ Escribe tu                                else:
-                                    st.warning("✏️ Escribe tu nombre y comentario antes de nombre y comentario antes de enviar.")
+                                    st.warning("✏️ Escribe tu nombre y comentario antes de enviar.")
 
-# --- PIE DE PAGINA --- enviar.")
-
-# --- PIE DE PAG
-st.markdown("""
-<divINA ---
+# --- PIE DE PAGINA ---
 st.markdown("""
 <div class='footer-willian'>
-    <p style='color: #ffcc00 !important; font-size:  class='footer-willian'>
-    <p style='color: #ffcc00 !important; font-size: 1.1.2em2em; font-weight: bold;; font-weight: bold; margin-bottom margin-bottom: : 10px;'>
-        🇻🇪 UNETE A NOS10px;'>
-        🇻🇪 UNETE A NOSOTROS Y QUE TU NOTROS Y QUE TU NEGOCIO FORME PARTEGOCIO FORME PARTE DE ESTA GUIA COMERCIAL!
+    <p style='color: #ffcc00 !important; font-size: 1.2em; font-weight: bold; margin-bottom: 10px;'>
+        🇻🇪 UNETE A NOSOTROS Y QUE TU NEGOCIO FORME PARTE DE ESTA GUIA COMERCIAL!
     </p>
-    <p style='color: #ffffff !important;E DE ESTA GUIA COMERCIAL!
-    </p>
-    <p style='color: #ffffff !important; font-size:  font-size: 1.1em;'>
-        📞 Contactanos por WhatsApp:1.1em;'>
+    <p style='color: #ffffff !important; font-size: 1.1em;'>
         📞 Contactanos por WhatsApp: 0424-2004015
-    </p>
-</div>
-"" 0424-2004015
     </p>
 </div>
 """, unsafe_allow_html=True)
 
-#", unsafe_allow_html=True)
-
-# --- PLACA DE --- PLACA DE BRONCE ---
+# --- PLACA DE BRONCE ---
 st.markdown("""
-<div class="bronze BRONCE ---
-st.markdown("""
-<div class="bronze-plaque-plaque">
-    <div">
-    <div class=" class="screw screw-tl"></divscrew screw-tl"></div><div class="screw screw-tr"></div><div class><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br="screw screw-bl"></div><div class="screw screw-br"></div"></div>
-    <div>
-    <div class=" class="bronze-text">
-        <span style="font-size:bronze-text">
-        <span style="font-size: 2.2em;"> 2.2em;">✨ Generado por Willian Almenar ✨</✨ Generado por Willian Almenar ✨</span><brspan><br><><br>
-        <span style="font-size: 1br>
-        <span style="font-size: 1.8em; letter-sp.8em; letter-spacing: 6px;acing: 6px; display: block; margin: 15px 0;">🇻 display: block; margin: 15px 0;">🇻🇪🇪 Santa Teresa del Tuy 2 Santa Teresa del Tuy 2.026.026 🇻🇪</span>
-    </div>
-</ 🇻🇪</span>
+<div class="bronze-plaque">
+    <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+    <div class="bronze-text">
+        <span style="font-size: 2.2em;">✨ Generado por Willian Almenar ✨</span><br><br>
+        <span style="font-size: 1.8em; letter-spacing: 6px; display: block; margin: 15px 0;">🇻🇪 Santa Teresa del Tuy 2.026 🇻🇪</span>
     </div>
 </div>
-""", unsafe_allow_htmldiv>
 """, unsafe_allow_html=True)
