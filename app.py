@@ -810,7 +810,7 @@ meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto
 # ============================================
 logo = get_logo()
 if logo:
-    st.markdown(f'<div style="text-align: center;"><img src="{logo}" style="max-width: 200px;"></div>)', unsafe_allow_html.html>
+    st.markdown f'<div style="text-align: center;"><img src="{logo}" style="max-width: 200px;"></div>', unsafe_allow_html.html>
 
 # ============================================
 # ENCABEZADO
