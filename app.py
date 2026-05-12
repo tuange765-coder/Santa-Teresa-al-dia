@@ -12,7 +12,57 @@ import os
 import tempfile
 
 # ============================================
-# OCULTAR TODOS LOS ELEMENTOS DE DESARROLLO
+# DETECTAR DISPOSITIVO MOVIL
+# ============================================
+def is_mobile():
+    try:
+        user_agent = st.context.headers.get('User-Agent', '').lower()
+        mobile_keywords = ['android', 'iphone', 'ipad', 'ipod', 'windows phone', 'mobile', 'blackberry', 'opera mini', 'iemobile']
+        return any(keyword in user_agent for keyword in mobile_keywords)
+    except:
+        return False
+
+es_movil = is_mobile()
+
+# ============================================
+# ESTILOS PARA MOVIL Y ESCRITORIO
+# ============================================
+if es_movil:
+    st.markdown("""
+    <style>
+    /* Estilos específicos para móvil */
+    .main > div {
+        padding: 10px !important;
+        margin: 5px 0 !important;
+    }
+    .stButton > button {
+        padding: 6px 12px !important;
+        font-size: 0.9em !important;
+    }
+    h1 {
+        font-size: 1.5em !important;
+    }
+    h2, h3 {
+        font-size: 1.2em !important;
+    }
+    .stats-panel {
+        padding: 10px !important;
+    }
+    .stats-panel span {
+        font-size: 0.9em !important;
+    }
+    .streamlit-expanderHeader {
+        font-size: 0.9em !important;
+        padding: 8px !important;
+    }
+    [data-testid="stSidebar"] {
+        min-width: 250px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ============================================
+# OCULTAR ELEMENTOS DE DESARROLLO EN TODOS LOS DISPOSITIVOS
 # ============================================
 st.markdown("""
 <style>
@@ -57,7 +107,7 @@ def copy_to_clipboard_js(text):
 st.set_page_config(
     page_title="Santa Teresa al Dia",
     page_icon="🇻🇪",
-    layout="wide"
+    layout="wide" if not es_movil else "centered"
 )
 
 # ============================================
@@ -304,10 +354,13 @@ def mostrar_video(video_data, formato):
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
             tmp.write(video_bytes)
             tmp_path = tmp.name
-        # Video con tamaño reducido usando CSS
-        st.markdown('<div style="max-width: 500px; margin: 0 auto;">', unsafe_allow_html=True)
-        st.video(tmp_path)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Video con tamaño responsivo
+        if es_movil:
+            st.video(tmp_path)
+        else:
+            st.markdown('<div style="max-width: 500px; margin: 0 auto;">', unsafe_allow_html=True)
+            st.video(tmp_path)
+            st.markdown('</div>', unsafe_allow_html=True)
         os.unlink(tmp_path)
     except Exception:
         st.error("Error al cargar video")
@@ -691,7 +744,7 @@ if 'visitante_contado' not in st.session_state:
 visitas = get_visitas()
 
 # ============================================
-# ESTILOS CON IMAGEN DE FONDO
+# ESTILOS PRINCIPALES
 # ============================================
 st.markdown("""
 <style>
@@ -864,7 +917,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================
-# SIDEBAR
+# SIDEBAR (MENU PRINCIPAL) - VISIBLE EN TODOS LOS DISPOSITIVOS
 # ============================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png", width=150)
@@ -877,14 +930,17 @@ with st.sidebar:
     
     st.markdown("---")
     
-    es_admin = False
-    with st.expander("Admin", expanded=False):
-        clave = st.text_input("Clave:", type="password")
-        if clave == "Juan*316*" or clave == "1966":
-            es_admin = True
-            st.success("Acceso concedido")
-        elif clave:
-            st.error("Clave incorrecta")
+    # Panel de Administracion - SOLO VISIBLE EN ESCRITORIO
+    if not es_movil:
+        with st.expander("Admin", expanded=False):
+            clave = st.text_input("Clave:", type="password")
+            if clave == "Juan*316*" or clave == "1966":
+                es_admin = True
+                st.success("Acceso concedido")
+            elif clave:
+                st.error("Clave incorrecta")
+    else:
+        es_admin = False
 
 # ============================================
 # CONTENIDO PRINCIPAL
@@ -1048,7 +1104,7 @@ elif menu == "Cronicas":
         st.info("No hay cronicas")
 
 # ============================================
-# MULTIMEDIA - VIDEOS MAS PEQUEÑOS Y MUSICA MP3
+# MULTIMEDIA
 # ============================================
 elif menu == "Multimedia":
     st.title("Multimedia")
@@ -1059,7 +1115,6 @@ elif menu == "Multimedia":
         videos = get_videos()
         if not videos.empty:
             for _, v in videos.iterrows():
-                # Video en expander - se ve el titulo y al hacer clic el video pequeño
                 with st.expander(f"🎬 {v['titulo']}"):
                     st.markdown("#### 📹 Reproducir Video")
                     st.caption(f"Subido: {v['fecha']}")
@@ -1136,9 +1191,9 @@ elif menu == "Opiniones":
                 st.caption(op['fecha'])
 
 # ============================================
-# PANEL DE ADMINISTRACION
+# PANEL DE ADMINISTRACION (SOLO ESCRITORIO)
 # ============================================
-if es_admin:
+if not es_movil and es_admin:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Panel")
     
@@ -1237,9 +1292,9 @@ if es_admin:
                     delete_cronica(c['id'])
                     st.rerun()
     
-    # ADMIN: VIDEOS (SUBIR DESDE PC)
+    # ADMIN: VIDEOS
     elif admin_option == "Videos":
-        st.title("Gestionar Videos")
+        st.title("Videos")
         st.info("📌 Sube videos desde tu PC (MP4, AVI, MOV, MKV). Tamaño maximo: 50 MB")
         
         with st.form("form_video"):
@@ -1268,9 +1323,9 @@ if es_admin:
         else:
             st.info("No hay videos subidos")
     
-    # ADMIN: MUSICA (SUBIR MP3 DESDE PC)
+    # ADMIN: MUSICA
     elif admin_option == "Musica":
-        st.title("Gestionar Musica")
+        st.title("Musica")
         st.info("📌 Sube archivos MP3 desde tu PC. Tamaño maximo: 20 MB")
         
         with st.form("form_musica"):
