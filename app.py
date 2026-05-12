@@ -7,7 +7,7 @@ import base64
 import io
 import uuid
 import random
-import pyperclip
+import requests
 
 # --- CONFIGURACION ---
 st.set_page_config(page_title="Guia Comercial Almenar", layout="wide", page_icon="🚀")
@@ -41,22 +41,19 @@ def get_app_url():
         pass
     return "https://guia-comercial-almenar.streamlit.app"
 
-# --- FUNCION PARA COPIAR AL PORTAPAPELES ---
-def copy_to_clipboard(text):
-    """Copia texto al portapapeles"""
-    try:
-        pyperclip.copy(text)
-        return True
-    except:
-        st.markdown(f"""
-        <script>
-        function copyToClipboard() {{
-            navigator.clipboard.writeText("{text}");
-        }}
-        copyToClipboard();
-        </script>
-        """, unsafe_allow_html=True)
-        return True
+# --- FUNCION PARA COPIAR AL PORTAPAPELES CON JAVASCRIPT ---
+def copy_to_clipboard_js(text):
+    """Copia texto al portapapeles usando JavaScript"""
+    st.markdown(f"""
+    <script>
+    function copyToClipboard() {{
+        navigator.clipboard.writeText("{text}");
+        alert("¡Enlace copiado al portapapeles!");
+    }}
+    copyToClipboard();
+    </script>
+    """, unsafe_allow_html=True)
+    return True
 
 # --- CONEXION A NEON (POSTGRESQL) ---
 conn = None
@@ -258,6 +255,7 @@ def obtener_efemerides():
     dia = hoy.day
     mes = hoy.month
     
+    # Efemerides de Venezuela por fecha especifica
     efemerides_venezuela_especificas = {
         (1, 1): "Fundacion de la ciudad de El Tocuyo (1545)",
         (2, 1): "Nacimiento de Jose Antonio Paez (1790)",
@@ -289,6 +287,7 @@ def obtener_efemerides():
         (25, 12): "Navidad en Venezuela"
     }
     
+    # Efemerides del Mundo por fecha especifica
     efemerides_mundo_especificas = {
         (1, 1): "Año Nuevo. Primer dia del año en el calendario gregoriano",
         (6, 1): "Dia de Reyes. Los tres reyes magos visitan al niño Jesus",
@@ -331,25 +330,46 @@ def obtener_efemerides():
         (31, 12): "Fin de Año"
     }
     
+    # Obtener efemerides del dia especifico
     efemeride_ve = efemerides_venezuela_especificas.get((dia, mes), "Hoy conmemoramos la historia y cultura de Venezuela")
     efemeride_mundo = efemerides_mundo_especificas.get((dia, mes), "Hoy celebramos la diversidad y unidad del mundo")
     
+    # Datos curiosos adicionales de Venezuela
     efemerides_extra_ve = [
         "El Salto Angel es la cascada mas alta del mundo con 979 metros",
         "Venezuela tiene 43 parques nacionales que protegen ecosistemas unicos",
         "La Orquidea es la flor nacional de Venezuela desde 1951",
         "El Turpial es el ave nacional de Venezuela",
         "El Araguaney fue declarado arbol nacional en 1948",
-        "La Arepa es considerada patrimonio cultural de Venezuela"
+        "La Arepa es considerada patrimonio cultural de Venezuela",
+        "Venezuela es el quinto pais con mas reservas de petroleo del mundo",
+        "El Pico Bolivar es la montana mas alta de Venezuela con 4978 metros",
+        "Los Llanos venezolanos son una de las sabanas mas grandes del mundo",
+        "El Teatro Teresa Carreno es uno de los mas importantes de Latinoamerica",
+        "Venezuela tiene la segunda reserva de oro mas grande del mundo",
+        "El Avila es el pulmon vegetal de Caracas, declarado Parque Nacional en 1958",
+        "Los Teques fue fundada el 11 de octubre de 1777",
+        "El Hato El Frío es la finca de trabajo mas grande del mundo",
+        "Venezuela es cuna del cuatro, instrumento musical emblematico"
     ]
     
+    # Datos curiosos adicionales del Mundo
     efemerides_extra_mundo = [
         "La Gran Muralla China es la estructura mas larga construida por el hombre",
         "El Monte Everest es la montana mas alta del mundo con 8848 metros",
         "El Oceano Pacifico es el oceano mas grande del mundo",
         "El Desierto del Sahara es el desierto calido mas grande del mundo",
         "El Amazonas es el rio mas caudaloso del mundo",
-        "El Vaticano es el pais mas pequeno del mundo"
+        "El Vaticano es el pais mas pequeno del mundo",
+        "Rusia es el pais mas grande del mundo por superficie",
+        "La ONU fue fundada el 24 de octubre de 1945",
+        "El internet fue inventado en 1969",
+        "La primera computadora electronica se creo en 1946",
+        "La Torre Eiffel mide 330 metros de altura",
+        "El Taj Mahal fue construido entre 1631 y 1653",
+        "La Mona Lisa fue pintada por Leonardo da Vinci entre 1503 y 1506",
+        "El primer vuelo de los hermanos Wright fue en 1903",
+        "La primera vacuna fue creada por Edward Jenner en 1796"
     ]
     
     extra_ve = random.choice(efemerides_extra_ve)
@@ -461,10 +481,13 @@ input, textarea, [data-baseweb="select"] { background-color: #ffffff; color: #00
     text-align: center;
     margin-bottom: 10px;
 }
-.copy-area {
-    display: flex;
-    gap: 5px;
-    align-items: center;
+.copy-btn {
+    background: linear-gradient(135deg, #3498db, #2980b9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 25px;
+    text-align: center;
+    cursor: pointer;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -480,7 +503,7 @@ with st.sidebar:
     st.title("Venezuela Gestion")
     
     # ============================================
-    # BOTONES DE COMPARTIR (AGREGADOS SIN BORRAR NADA)
+    # BOTONES DE COMPARTIR
     # ============================================
     st.markdown("---")
     st.markdown("### 📢 Compartir App")
@@ -500,9 +523,9 @@ with st.sidebar:
     with col_c1:
         st.text_input("", value=app_url, disabled=True, key="url_sidebar", label_visibility="collapsed")
     with col_c2:
-        if st.button("📋", key="copy_sidebar", help="Copiar enlace"):
-            copy_to_clipboard(app_url)
-            st.success("¡Copiado!")
+        if st.button("📋 Copiar", key="copy_sidebar"):
+            copy_to_clipboard_js(app_url)
+            st.success("¡Enlace copiado!")
     
     st.markdown("---")
     
