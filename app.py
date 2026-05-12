@@ -1,1388 +1,972 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import pytz
+from datetime import datetime, timedelta
 from sqlalchemy import text
 from PIL import Image
 import base64
 import io
+import uuid
 import random
-import requests
-import os
-import tempfile
+import pyperclip
 
-# ============================================
-# CONFIGURACION DE PAGINA
-# ============================================
-st.set_page_config(
-    page_title="Santa Teresa al Dia",
-    page_icon="🇻🇪",
-    layout="wide"
-)
+# --- CONFIGURACION ---
+st.set_page_config(page_title="Guia Comercial Almenar", layout="wide", page_icon="🚀")
 
-# ============================================
-# ZONA HORARIA DE VENEZUELA
-# ============================================
-CARACAS_TZ = pytz.timezone('America/Caracas')
-
-def get_fecha_hora_venezuela():
-    ahora_utc = datetime.now(pytz.UTC)
-    ahora_caracas = ahora_utc.astimezone(CARACAS_TZ)
-    return ahora_caracas
-
-# ============================================
-# CONEXION A NEON (BASE DE DATOS)
-# ============================================
-def init_connection():
+# --- DETECTAR SI ES DISPOSITIVO MOVIL ---
+def is_mobile():
+    """Detecta si el usuario accede desde un dispositivo móvil"""
     try:
-        if "DATABASE_URL" in st.secrets:
-            conn = st.connection("postgresql", type="sql", url=st.secrets["DATABASE_URL"])
-        else:
-            st.error("No se encontro DATABASE_URL en secrets")
-            st.stop()
-        test_query = conn.query("SELECT 1 as test", ttl=0)
-        if test_query.empty:
-            st.error("No se pudo verificar la conexion")
-            st.stop()
-        return conn
-    except Exception as e:
-        st.error(f"Error de conexion: {str(e)}")
-        st.stop()
-
-conn = init_connection()
-
-# ============================================
-# CREAR TABLAS SOLO SI NO EXISTEN (NO RECONSTRUIR)
-# ============================================
-def crear_tablas_si_no_existen():
-    """Crea las tablas solo si no existen - NO BORRA DATOS EXISTENTES"""
-    try:
-        with conn.session as s:
-            # Tabla de noticias
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS noticias (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT,
-                categoria TEXT,
-                contenido TEXT,
-                imagen_url TEXT,
-                fecha TEXT,
-                autor TEXT
-            )
-            """))
-            
-            # Tabla de negocios
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS negocios (
-                id SERIAL PRIMARY KEY,
-                nombre TEXT,
-                categoria TEXT,
-                resena TEXT,
-                imagen_url TEXT,
-                direccion TEXT,
-                telefono TEXT,
-                horario TEXT,
-                fecha TEXT
-            )
-            """))
-            
-            # Tabla de reflexiones
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS reflexiones (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT,
-                contenido TEXT,
-                versiculo TEXT,
-                autor TEXT,
-                fecha TEXT,
-                activo BOOLEAN DEFAULT TRUE
-            )
-            """))
-            
-            # Tabla de cronicas
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS cronicas (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT,
-                contenido TEXT,
-                autor TEXT,
-                fecha TEXT,
-                lugar TEXT,
-                estado TEXT
-            )
-            """))
-            
-            # Tabla de videos (con datos binarios en base64)
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS videos (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT,
-                video_data TEXT,
-                formato TEXT,
-                fecha TEXT
-            )
-            """))
-            
-            # Tabla de musicas (con datos binarios en base64)
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS musicas (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT,
-                audio_data TEXT,
-                formato TEXT,
-                fecha TEXT
-            )
-            """))
-            
-            # Tabla de denuncias
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS denuncias (
-                id SERIAL PRIMARY KEY,
-                denunciante TEXT,
-                titulo TEXT,
-                descripcion TEXT,
-                ubicacion TEXT,
-                fecha TEXT,
-                estatus TEXT DEFAULT 'Pendiente'
-            )
-            """))
-            
-            # Tabla de opiniones
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS opiniones (
-                id SERIAL PRIMARY KEY,
-                usuario TEXT,
-                comentario TEXT,
-                calificacion INTEGER,
-                fecha TEXT,
-                aprobada BOOLEAN DEFAULT FALSE
-            )
-            """))
-            
-            # Tabla de visitas (inicia en 1500)
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS visitas (
-                id INTEGER PRIMARY KEY,
-                conteo INTEGER DEFAULT 1500
-            )
-            """))
-            
-            # Tabla de configuracion
-            s.execute(text("""
-            CREATE TABLE IF NOT EXISTS configuracion (
-                id INTEGER PRIMARY KEY,
-                logo_url TEXT,
-                dolar REAL DEFAULT 489.55
-            )
-            """))
-            
-            # Insertar datos iniciales solo si no existen (para que no se pierdan)
-            res = s.execute(text("SELECT COUNT(*) FROM visitas WHERE id = 1")).fetchone()
-            if res[0] == 0:
-                s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 1500)"))
-            
-            res2 = s.execute(text("SELECT COUNT(*) FROM configuracion WHERE id = 1")).fetchone()
-            if res2[0] == 0:
-                s.execute(text("INSERT INTO configuracion (id, logo_url, dolar) VALUES (1, NULL, 489.55)"))
-            
-            res3 = s.execute(text("SELECT COUNT(*) FROM cronicas")).fetchone()
-            if res3[0] == 0:
-                cronicas_iniciales = [
-                    ("Los Valles del Tuy", "Los Valles del Tuy fueron testigos de importantes batallas por la independencia. Hoy son una próspera región agrícola e industrial.", "Cronista", "1781", "Valles del Tuy", "Miranda"),
-                    ("La Batalla de Carabobo", "El 24 de junio de 1821, el Ejército Patriota liderado por Simón Bolívar derrotó a las fuerzas realistas, sellando la independencia de Venezuela.", "Cronista", "1821", "Campo de Carabobo", "Carabobo"),
-                    ("Nacimiento del Libertador", "Simón José Antonio de la Santísima Trinidad Bolívar Palacios Ponte y Blanco nació en Caracas el 24 de julio de 1783.", "Cronista", "1783", "Caracas", "Distrito Capital")
-                ]
-                for c in cronicas_iniciales:
-                    s.execute(text("INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar, estado) VALUES (:t, :c, :a, :f, :l, :e)"),
-                             {"t": c[0], "c": c[1], "a": c[2], "f": c[3], "l": c[4], "e": c[5]})
-            
-            res4 = s.execute(text("SELECT COUNT(*) FROM reflexiones")).fetchone()
-            if res4[0] == 0:
-                s.execute(text("""
-                    INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                    VALUES ('La Paz de Dios', 
-                    'Querido hermano, no te angusties por nada. En lugar de eso, presenta tus peticiones delante de Dios. Él te dará una paz que no puedes explicar, pero que cuidará tu corazón y tus pensamientos.', 
-                    'Filipenses 4:6-7 (Reina Valera 1960)', 
-                    'Ministerio Santa Teresa', 
-                    '2026-01-01', 
-                    TRUE)
-                """))
-            
-            res5 = s.execute(text("SELECT COUNT(*) FROM noticias")).fetchone()
-            if res5[0] == 0:
-                fecha_actual = datetime.now().strftime("%d/%m/%Y")
-                noticias_iniciales = [
-                    ("Bienvenidos a Santa Teresa al Dia", "Nacional", "Un espacio para mantenernos informados y conectados como comunidad.", fecha_actual, "Admin"),
-                    ("Santa Teresa: Tierra de progreso", "Nacional", "Nuestra ciudad sigue creciendo y desarrollándose cada día.", fecha_actual, "Admin"),
-                    ("Selección Venezolana se prepara", "Deportes", "La Vinotinto continúa su preparación para los próximos compromisos internacionales.", fecha_actual, "Admin"),
-                    ("Situación internacional", "Internacional", "Análisis de los principales sucesos que afectan la economía global.", fecha_actual, "Admin")
-                ]
-                for n in noticias_iniciales:
-                    s.execute(text("INSERT INTO noticias (titulo, categoria, contenido, fecha, autor) VALUES (:t, :c, :cont, :f, :a)"),
-                             {"t": n[0], "c": n[1], "cont": n[2], "f": n[3], "a": n[4]})
-            
-            s.commit()
-            return True
-    except Exception as e:
-        st.error(f"Error al crear tablas: {e}")
+        user_agent = st.context.headers.get('User-Agent', '').lower()
+        mobile_keywords = ['android', 'iphone', 'ipad', 'ipod', 'windows phone', 'mobile']
+        return any(keyword in user_agent for keyword in mobile_keywords)
+    except:
         return False
 
-# Ejecutar creacion de tablas (SOLO UNA VEZ, sin borrar datos)
-crear_tablas_si_no_existen()
+es_movil = is_mobile()
 
-# ============================================
-# FUNCIONES DE CONVERSION A BASE64
-# ============================================
-def video_a_base64(file):
-    """Convierte un archivo de video a base64"""
-    if file:
-        try:
-            bytes_data = file.read()
-            if len(bytes_data) > 50 * 1024 * 1024:
-                st.error("El video es muy grande (máximo 50 MB)")
-                return None
-            return base64.b64encode(bytes_data).decode()
-        except Exception as e:
-            st.error(f"Error al procesar video: {e}")
-            return None
-    return None
-
-def audio_a_base64(file):
-    """Convierte un archivo de audio a base64"""
-    if file:
-        try:
-            bytes_data = file.read()
-            if len(bytes_data) > 20 * 1024 * 1024:
-                st.error("El audio es muy grande (máximo 20 MB)")
-                return None
-            return base64.b64encode(bytes_data).decode()
-        except Exception as e:
-            st.error(f"Error al procesar audio: {e}")
-            return None
-    return None
-
-def img_a_base64(file):
-    """Convierte una imagen a base64"""
-    if file:
-        try:
-            img = Image.open(file)
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            img.thumbnail((800, 800))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=70)
-            return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
-        except:
-            return None
-    return None
-
-def mostrar_video(video_data, formato):
-    """Muestra un video desde base64"""
+# --- OBTENER URL DE LA APP ---
+def get_app_url():
+    """Obtiene la URL actual de la aplicación"""
     try:
-        video_bytes = base64.b64decode(video_data)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
-            tmp.write(video_bytes)
-            tmp_path = tmp.name
-        st.video(tmp_path)
-        os.unlink(tmp_path)
-    except Exception as e:
-        st.error(f"Error al cargar video: {e}")
-
-def mostrar_audio(audio_data, formato):
-    """Muestra un audio desde base64"""
-    try:
-        audio_bytes = base64.b64decode(audio_data)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{formato}") as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        st.audio(tmp_path)
-        os.unlink(tmp_path)
-    except Exception as e:
-        st.error(f"Error al cargar audio: {e}")
-
-# ============================================
-# FUNCION DOLAR BCV
-# ============================================
-def get_dolar():
-    try:
-        res = conn.query("SELECT dolar FROM configuracion WHERE id = 1", ttl=0)
-        if not res.empty:
-            return float(res.iloc[0,0])
-        return 489.55
+        headers = st.context.headers
+        if headers:
+            if 'X-Forwarded-Host' in headers:
+                return f"https://{headers['X-Forwarded-Host']}"
+            if 'Host' in headers:
+                host = headers['Host']
+                if 'localhost' in host or '127.0.0.1' in host:
+                    return f"http://{host}"
+                return f"https://{host}"
     except:
-        return 489.55
+        pass
+    return "https://guia-comercial-almenar.streamlit.app"
 
-def actualizar_dolar_manual(nuevo_valor):
+# --- FUNCION PARA COPIAR AL PORTAPAPELES ---
+def copy_to_clipboard(text):
+    """Copia texto al portapapeles"""
     try:
-        with conn.session as s:
-            s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_valor})
-            s.commit()
+        pyperclip.copy(text)
         return True
     except:
-        return False
+        st.markdown(f"""
+        <script>
+        function copyToClipboard() {{
+            navigator.clipboard.writeText("{text}");
+        }}
+        copyToClipboard();
+        </script>
+        """, unsafe_allow_html=True)
+        return True
 
-dolar = get_dolar()
+# --- CONEXION A NEON (POSTGRESQL) ---
+conn = None
 
-# ============================================
-# FUNCIONES GENERALES
-# ============================================
-def actualizar_visitas():
+try:
+    if "DATABASE_URL" in st.secrets:
+        conn = st.connection("postgresql", type="sql", url=st.secrets["DATABASE_URL"])
+    elif "connections" in st.secrets and "postgresql" in st.secrets["connections"]:
+        conn = st.connection("postgresql", type="sql")
+    else:
+        st.error("""
+        No se encontro configuracion de base de datos.
+        
+        Por favor, configura los secrets en Streamlit Cloud:
+        
+        1. Ve a Settings -> Secrets
+        2. Agrega:
+        
+        DATABASE_URL = "postgresql://usuario:contraseña@host/database?sslmode=require"
+        """)
+        st.stop()
+    
+    test_query = conn.query("SELECT 1 as test", ttl=0)
+    if test_query.empty:
+        st.error("No se pudo verificar la conexion a la base de datos")
+        st.stop()
+        
+except Exception as e:
+    st.error(f"Error de conexion: {str(e)}")
+    st.stop()
+
+# --- CATEGORIAS DEFINIDAS ---
+CAT_LIST = [
+    "Salud", "Laboratorios", "Opticas", "Farmacias", "Dulcerias",
+    "Comida Rapida", "Panaderias", "Charcuterias", "Carnicerias",
+    "Ferreterias", "Zapaterias", "Electrodomesticos", "Fibras Opticas",
+    "Taxis", "Mototaxis", "Servicios", "Entes Publicos", "Comercio", "Otros"
+]
+
+# --- FUNCION PARA AGREGAR COMERCIOS PREDETERMINADOS ---
+def agregar_comercios_predeterminados():
+    """Agrega los comercios y entes publicos solicitados si no existen"""
+    try:
+        with conn.session as s:
+            negocios_existentes = s.execute(text("""
+                SELECT COUNT(*) FROM comercios 
+                WHERE nombre IN ('Corpoelec - Oficina Comercial', 'Fiscalia Municipal', 'Policia Municipal', 
+                                'IAPEM', 'CICPC - Delegacion Municipal', 'Tribunales de Santa Teresa', 
+                                'Hidrocapital - Oficina Comercial', 'Unicasa', 'Traki', 'La Total', 
+                                'El Castillo', 'El Palacio del Blumer')
+            """)).fetchone()
+            
+            if negocios_existentes[0] == 0:
+                comercios_predeterminados = [
+                    {"nombre": "Corpoelec - Oficina Comercial", "categoria": "Entes Publicos", "ubicacion": "Av. Bolivar, Centro Comercial Santa Teresa, Local 2", "resenna": "Oficina comercial de Corpoelec. Atencion al publico para tramites de luz.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.234167,-66.664722"},
+                    {"nombre": "Fiscalia Municipal", "categoria": "Entes Publicos", "ubicacion": "Calle Miranda, Edificio Fiscalia", "resenna": "Sede de la Fiscalia Municipal. Atencion al publico.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.233333,-66.666667"},
+                    {"nombre": "Policia Municipal", "categoria": "Entes Publicos", "ubicacion": "Av. Intercomunal, Sector La Esperanza", "resenna": "Comando de la Policia Municipal. Seguridad ciudadana.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.235000,-66.665000"},
+                    {"nombre": "IAPEM", "categoria": "Entes Publicos", "ubicacion": "Av. Principal, Zona Industrial", "resenna": "Instituto Autonomo de Policia del Estado Miranda.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.236000,-66.666000"},
+                    {"nombre": "CICPC - Delegacion Municipal", "categoria": "Entes Publicos", "ubicacion": "Calle Sucre, Edificio CICPC", "resenna": "Delegacion del Cuerpo de Investigaciones Cientificas.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.237000,-66.667000"},
+                    {"nombre": "Tribunales de Santa Teresa", "categoria": "Entes Publicos", "ubicacion": "Av. Romulo Gallegos, Palacio de Justicia", "resenna": "Sede de los Tribunales. Administracion de justicia.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.238000,-66.668000"},
+                    {"nombre": "Hidrocapital - Oficina Comercial", "categoria": "Entes Publicos", "ubicacion": "Av. Bolivar, Centro Comercial Los Proceres", "resenna": "Oficina comercial de Hidrocapital. Atencion para tramites de agua.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.239000,-66.669000"},
+                    {"nombre": "Unicasa", "categoria": "Comercio", "ubicacion": "Av. Intercomunal, Centro Comercial Santa Teresa Mall", "resenna": "Hipermercado con gran variedad de productos.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.240000,-66.670000"},
+                    {"nombre": "Traki", "categoria": "Comercio", "ubicacion": "Av. Principal, Centro Comercial Las Americas", "resenna": "Tienda por departamentos.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.241000,-66.671000"},
+                    {"nombre": "La Total", "categoria": "Comercio", "ubicacion": "Av. Bolivar, Centro Comercial El Paseo", "resenna": "Tienda de electrodomesticos y tecnologia.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.242000,-66.672000"},
+                    {"nombre": "El Castillo", "categoria": "Comercio", "ubicacion": "Calle Bolivar, Local 5", "resenna": "Tienda de ropa, calzado y accesorios.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.243000,-66.673000"},
+                    {"nombre": "El Palacio del Blumer", "categoria": "Comercio", "ubicacion": "Av. Bolivar, Local 15", "resenna": "Tienda especializada en blumer y lenceria.", "estrellas": 4, "maps_url": "https://maps.google.com/?q=10.244000,-66.674000"}
+                ]
+                
+                for c in comercios_predeterminados:
+                    s.execute(text("""
+                        INSERT INTO comercios (nombre, categoria, ubicacion, resenna_willian, estrellas_w, maps_url, visitas)
+                        VALUES (:n, :c, :u, :r, :e, :m, 0)
+                    """), {
+                        "n": c["nombre"],
+                        "c": c["categoria"],
+                        "u": c["ubicacion"],
+                        "r": c["resenna"],
+                        "e": c["estrellas"],
+                        "m": c["maps_url"]
+                    })
+                s.commit()
+    except Exception:
+        pass
+
+# --- CREACION DE TABLAS ---
+try:
+    with conn.session as s:
+        s.execute(text("""
+        CREATE TABLE IF NOT EXISTS comercios (
+            id SERIAL PRIMARY KEY,
+            nombre VARCHAR(255),
+            categoria VARCHAR(100),
+            ubicacion TEXT,
+            foto_url TEXT,
+            resenna_willian TEXT,
+            estrellas_w INTEGER,
+            maps_url TEXT,
+            visitas INTEGER DEFAULT 0
+        )
+        """))
+        
+        try:
+            s.execute(text("ALTER TABLE comercios ADD COLUMN IF NOT EXISTS visitas INTEGER DEFAULT 0"))
+        except Exception:
+            pass
+        
+        s.execute(text("""
+        CREATE TABLE IF NOT EXISTS fotos_comercios (
+            id SERIAL PRIMARY KEY,
+            comercio_id INTEGER,
+            foto_data TEXT
+        )
+        """))
+        s.execute(text("""
+        CREATE TABLE IF NOT EXISTS opiniones (
+            id SERIAL PRIMARY KEY,
+            comercio_id INTEGER,
+            usuario VARCHAR(100),
+            comentario TEXT,
+            estrellas_u INTEGER,
+            fecha VARCHAR(50)
+        )
+        """))
+        s.execute(text("""
+        CREATE TABLE IF NOT EXISTS visitas (
+            id INTEGER PRIMARY KEY,
+            conteo INTEGER
+        )
+        """))
+        s.execute(text("""
+        CREATE TABLE IF NOT EXISTS denuncias (
+            id SERIAL PRIMARY KEY,
+            denunciante VARCHAR(255),
+            comercio_afectado VARCHAR(255),
+            motivo TEXT,
+            fecha VARCHAR(50),
+            estatus VARCHAR(50) DEFAULT 'Pendiente'
+        )
+        """))
+        s.execute(text("CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, logo_data TEXT)"))
+        
+        # Verificar si existe el registro de visitas, si no, crearlo con valor 1500
+        res_v = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
+        if not res_v:
+            s.execute(text("INSERT INTO visitas (id, conteo) VALUES (1, 1500)"))
+        s.commit()
+        
+except Exception as e:
+    st.error(f"Error al crear las tablas: {str(e)}")
+    st.stop()
+
+# --- AGREGAR COMERCIOS PREDETERMINADOS ---
+agregar_comercios_predeterminados()
+
+# --- LOGICA DE VISITAS TOTALES (COMIENZA EN 1500 Y SUMA +1 CADA VEZ) ---
+if 'visitado' not in st.session_state:
     try:
         with conn.session as s:
             s.execute(text("UPDATE visitas SET conteo = conteo + 1 WHERE id = 1"))
             s.commit()
-    except:
+        st.session_state.visitado = True
+    except Exception:
         pass
 
-def get_visitas():
-    try:
-        res = conn.query("SELECT conteo FROM visitas WHERE id = 1", ttl=0)
-        if not res.empty:
-            return int(res.iloc[0,0])
-        return 1500
-    except:
-        return 1500
+try:
+    res_visitas = conn.query("SELECT conteo FROM visitas WHERE id = 1", ttl=0)
+    total_visitas = res_visitas.iloc[0,0] if not res_visitas.empty else 1500
+except Exception:
+    total_visitas = 1500
 
-def get_logo():
-    try:
-        res = conn.query("SELECT logo_url FROM configuracion WHERE id = 1", ttl=0)
-        if not res.empty and res.iloc[0,0]:
-            return res.iloc[0,0]
-        return None
-    except:
-        return None
+# --- FUNCION DE IMAGEN OPTIMIZADA ---
+def imagen_a_base64(uploaded_file):
+    if uploaded_file is not None:
+        try:
+            if hasattr(uploaded_file, 'size') and uploaded_file.size > 5 * 1024 * 1024:
+                st.error("La imagen es muy grande (maximo 5MB)")
+                return None
+            
+            img = Image.open(uploaded_file)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            max_size = (800, 800) 
+            try:
+                img.thumbnail(max_size, Image.LANCZOS)
+            except AttributeError:
+                img.thumbnail(max_size, Image.ANTIALIAS)
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=70, optimize=True)
+            bytes_data = buffer.getvalue()
+            return f"data:image/jpeg;base64,{base64.b64encode(bytes_data).decode()}"
+        except Exception as e:
+            st.error(f"Error al procesar la imagen: {e}")
+            return None
+    return None
 
-def save_logo(url):
-    try:
-        with conn.session as s:
-            s.execute(text("UPDATE configuracion SET logo_url = :l WHERE id = 1"), {"l": url})
-            s.commit()
-        return True
-    except:
-        return False
+# --- FUNCION PARA OBTENER EFEMERIDES ---
+def obtener_efemerides():
+    hoy = datetime.now()
+    dia = hoy.day
+    mes = hoy.month
+    
+    efemerides_venezuela_especificas = {
+        (1, 1): "Fundacion de la ciudad de El Tocuyo (1545)",
+        (2, 1): "Nacimiento de Jose Antonio Paez (1790)",
+        (6, 1): "Batalla de Maturin (1813)",
+        (8, 1): "Nacimiento de Simon Rodriguez (1769)",
+        (10, 1): "Creacion del estado Zulia (1864)",
+        (13, 1): "Creacion del estado Anzoategui (1909)",
+        (15, 1): "Dia del Maestro en Venezuela",
+        (23, 1): "Caida de la dictadura de Marcos Perez Jimenez (1958)",
+        (27, 1): "Nacimiento de Juan Crisostomo Falcon (1820)",
+        (2, 2): "Dia de Nuestra Senora de la Candelaria",
+        (4, 2): "Inicio de la Rebelion del 4F (1992)",
+        (7, 2): "Nacimiento de Romulo Gallegos (1884)",
+        (12, 2): "Batalla de La Victoria (1814) - Dia de la Juventud",
+        (14, 2): "Nacimiento de Antonio Jose de Sucre (1795)",
+        (10, 3): "Nacimiento de Jose Maria Vargas (1786)",
+        (28, 3): "Nacimiento de Francisco de Miranda (1750)",
+        (19, 4): "Declaracion de la Independencia (1810)",
+        (27, 4): "Nacimiento de Simon Bolivar (1783)",
+        (3, 5): "Creacion de la Bandera Nacional (1811)",
+        (24, 6): "Batalla de Carabobo (1821)",
+        (5, 7): "Firma del Acta de Independencia (1811)",
+        (24, 7): "Natalicio de Simon Bolivar (1783)",
+        (3, 8): "Nacimiento de Juan Vicente Gonzalez (1810)",
+        (13, 9): "Batalla de la Casa Fuerte (1812)",
+        (12, 10): "Dia de la Resistencia Indigena",
+        (27, 11): "Aniversario del Colegio de Ingenieros de Venezuela",
+        (17, 12): "Muere Simon Bolivar en Santa Marta (1830)",
+        (25, 12): "Navidad en Venezuela"
+    }
+    
+    efemerides_mundo_especificas = {
+        (1, 1): "Año Nuevo. Primer dia del año en el calendario gregoriano",
+        (6, 1): "Dia de Reyes. Los tres reyes magos visitan al niño Jesus",
+        (15, 1): "Nacimiento de Martin Luther King Jr. (1929)",
+        (20, 1): "Dia de Martin Luther King Jr. en Estados Unidos",
+        (27, 1): "Dia Internacional de Conmemoracion del Holocausto",
+        (28, 1): "Nacimiento de Jose Marti (1853)",
+        (2, 2): "Dia Mundial de los Humedales",
+        (4, 2): "Dia Mundial contra el Cancer",
+        (11, 2): "Dia Internacional de la Mujer y la Nina en la Ciencia",
+        (14, 2): "Dia de San Valentin - Dia del Amor y la Amistad",
+        (8, 3): "Dia Internacional de la Mujer",
+        (21, 3): "Dia Internacional de la Eliminacion de la Discriminacion Racial",
+        (22, 3): "Dia Mundial del Agua",
+        (7, 4): "Dia Mundial de la Salud",
+        (22, 4): "Dia de la Tierra",
+        (1, 5): "Dia Internacional del Trabajo",
+        (3, 5): "Dia Mundial de la Libertad de Prensa",
+        (8, 5): "Dia Mundial de la Cruz Roja",
+        (15, 5): "Dia Internacional de la Familia",
+        (21, 5): "Dia Mundial de la Diversidad Cultural",
+        (31, 5): "Dia Mundial sin Tabaco",
+        (5, 6): "Dia Mundial del Ambiente",
+        (8, 6): "Dia Mundial de los Oceanos",
+        (20, 6): "Dia Mundial del Refugiado",
+        (21, 6): "Dia Internacional del Yoga",
+        (11, 7): "Dia Mundial de la Poblacion",
+        (18, 7): "Dia Internacional de Nelson Mandela",
+        (28, 7): "Dia Mundial contra la Hepatitis",
+        (30, 7): "Dia Internacional de la Amistad",
+        (9, 8): "Dia Internacional de los Pueblos Indigenas",
+        (12, 8): "Dia Internacional de la Juventud",
+        (19, 8): "Dia Mundial de la Asistencia Humanitaria",
+        (26, 9): "Dia Mundial de la Prevencion del Embarazo no Planificado",
+        (24, 10): "Dia de las Naciones Unidas",
+        (31, 10): "Halloween",
+        (2, 11): "Dia de los Difuntos",
+        (20, 11): "Dia de la Revolucion Mexicana",
+        (25, 12): "Navidad",
+        (31, 12): "Fin de Año"
+    }
+    
+    efemeride_ve = efemerides_venezuela_especificas.get((dia, mes), "Hoy conmemoramos la historia y cultura de Venezuela")
+    efemeride_mundo = efemerides_mundo_especificas.get((dia, mes), "Hoy celebramos la diversidad y unidad del mundo")
+    
+    efemerides_extra_ve = [
+        "El Salto Angel es la cascada mas alta del mundo con 979 metros",
+        "Venezuela tiene 43 parques nacionales que protegen ecosistemas unicos",
+        "La Orquidea es la flor nacional de Venezuela desde 1951",
+        "El Turpial es el ave nacional de Venezuela",
+        "El Araguaney fue declarado arbol nacional en 1948",
+        "La Arepa es considerada patrimonio cultural de Venezuela"
+    ]
+    
+    efemerides_extra_mundo = [
+        "La Gran Muralla China es la estructura mas larga construida por el hombre",
+        "El Monte Everest es la montana mas alta del mundo con 8848 metros",
+        "El Oceano Pacifico es el oceano mas grande del mundo",
+        "El Desierto del Sahara es el desierto calido mas grande del mundo",
+        "El Amazonas es el rio mas caudaloso del mundo",
+        "El Vaticano es el pais mas pequeno del mundo"
+    ]
+    
+    extra_ve = random.choice(efemerides_extra_ve)
+    extra_mundo = random.choice(efemerides_extra_mundo)
+    
+    return efemeride_ve, efemeride_mundo, extra_ve, extra_mundo
 
-# ============================================
-# NOTICIAS
-# ============================================
-def add_noticia(titulo, categoria, contenido, imagen):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        img_url = img_a_base64(imagen) if imagen else None
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO noticias (titulo, categoria, contenido, imagen_url, fecha, autor)
-                VALUES (:t, :c, :cont, :i, :f, 'Admin')
-            """), {"t": titulo, "c": categoria, "cont": contenido, "i": img_url, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
-    except:
-        return False
-
-def get_noticias(categoria=None):
-    try:
-        if categoria and categoria != "Todas":
-            return conn.query("SELECT * FROM noticias WHERE categoria = :cat ORDER BY id DESC", 
-                            params={"cat": categoria}, ttl=0)
-        else:
-            return conn.query("SELECT * FROM noticias ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def delete_noticia(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM noticias WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# NEGOCIOS
-# ============================================
-def add_negocio(nombre, categoria, resena, direccion, telefono, horario, imagen):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        img_url = img_a_base64(imagen) if imagen else None
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO negocios (nombre, categoria, resena, imagen_url, direccion, telefono, horario, fecha)
-                VALUES (:n, :c, :r, :i, :d, :t, :h, :f)
-            """), {"n": nombre, "c": categoria, "r": resena, "i": img_url, "d": direccion, "t": telefono, "h": horario, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
-    except:
-        return False
-
-def get_negocios():
-    try:
-        return conn.query("SELECT * FROM negocios ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def delete_negocio(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM negocios WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# REFLEXIONES
-# ============================================
-def add_reflexion(titulo, contenido, versiculo):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        with conn.session as s:
-            s.execute(text("UPDATE reflexiones SET activo = FALSE"))
-            s.execute(text("""
-                INSERT INTO reflexiones (titulo, contenido, versiculo, autor, fecha, activo)
-                VALUES (:t, :c, :v, 'Admin', :f, TRUE)
-            """), {"t": titulo, "c": contenido, "v": versiculo, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
-    except:
-        return False
-
-def get_reflexion_activa():
-    try:
-        df = conn.query("SELECT * FROM reflexiones WHERE activo = TRUE LIMIT 1", ttl=0)
-        if not df.empty:
-            return df.iloc[0]
-        return None
-    except:
-        return None
-
-def get_reflexiones():
-    try:
-        return conn.query("SELECT * FROM reflexiones ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def delete_reflexion(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM reflexiones WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# CRONICAS
-# ============================================
-def add_cronica(titulo, contenido, lugar, estado):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO cronicas (titulo, contenido, autor, fecha, lugar, estado)
-                VALUES (:t, :c, 'Admin', :f, :l, :e)
-            """), {"t": titulo, "c": contenido, "f": ahora.strftime("%d/%m/%Y"), "l": lugar, "e": estado})
-            s.commit()
-        return True
-    except:
-        return False
-
-def get_cronicas(estado=None):
-    try:
-        if estado and estado != "Todos":
-            return conn.query("SELECT * FROM cronicas WHERE estado = :e ORDER BY id DESC", 
-                            params={"e": estado}, ttl=0)
-        else:
-            return conn.query("SELECT * FROM cronicas ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def delete_cronica(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM cronicas WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# VIDEOS (SUBIR DESDE LAPTOP - PERSISTENTE)
-# ============================================
-def add_video(titulo, archivo_video):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        video_data = video_a_base64(archivo_video)
-        if video_data:
-            formato = archivo_video.type.split("/")[-1] if archivo_video.type else "mp4"
-            with conn.session as s:
-                s.execute(text("""
-                    INSERT INTO videos (titulo, video_data, formato, fecha)
-                    VALUES (:t, :v, :fmt, :f)
-                """), {"t": titulo, "v": video_data, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
-                s.commit()
-            return True
-        return False
-    except Exception as e:
-        st.error(f"Error al subir video: {e}")
-        return False
-
-def get_videos():
-    try:
-        return conn.query("SELECT * FROM videos ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def delete_video(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM videos WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# MUSICA (SUBIR DESDE LAPTOP - PERSISTENTE)
-# ============================================
-def add_musica(titulo, archivo_audio):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        audio_data = audio_a_base64(archivo_audio)
-        if audio_data:
-            formato = archivo_audio.type.split("/")[-1] if archivo_audio.type else "mp3"
-            with conn.session as s:
-                s.execute(text("""
-                    INSERT INTO musicas (titulo, audio_data, formato, fecha)
-                    VALUES (:t, :a, :fmt, :f)
-                """), {"t": titulo, "a": audio_data, "fmt": formato, "f": ahora.strftime("%d/%m/%Y")})
-                s.commit()
-            return True
-        return False
-    except Exception as e:
-        st.error(f"Error al subir musica: {e}")
-        return False
-
-def get_musicas():
-    try:
-        return conn.query("SELECT * FROM musicas ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def delete_musica(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM musicas WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# DENUNCIAS
-# ============================================
-def add_denuncia(denunciante, titulo, descripcion, ubicacion):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO denuncias (denunciante, titulo, descripcion, ubicacion, fecha, estatus)
-                VALUES (:d, :t, :desc, :u, :f, 'Pendiente')
-            """), {"d": denunciante or "Anonimo", "t": titulo, "desc": descripcion, "u": ubicacion, "f": ahora.strftime("%d/%m/%Y")})
-            s.commit()
-        return True
-    except:
-        return False
-
-def get_denuncias():
-    try:
-        return conn.query("SELECT * FROM denuncias ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def update_denuncia_status(id_, status):
-    try:
-        with conn.session as s:
-            s.execute(text("UPDATE denuncias SET estatus = :e WHERE id = :id"), {"e": status, "id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-def delete_denuncia(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM denuncias WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# OPINIONES
-# ============================================
-def add_opinion(usuario, comentario, calificacion):
-    try:
-        ahora = get_fecha_hora_venezuela()
-        with conn.session as s:
-            s.execute(text("""
-                INSERT INTO opiniones (usuario, comentario, calificacion, fecha, aprobada)
-                VALUES (:u, :c, :cal, :f, FALSE)
-            """), {"u": usuario, "c": comentario, "cal": calificacion, "f": ahora.strftime("%d/%m/%Y %H:%M")})
-            s.commit()
-        return True
-    except:
-        return False
-
-def get_opiniones(aprobadas=True):
-    try:
-        if aprobadas:
-            return conn.query("SELECT * FROM opiniones WHERE aprobada = TRUE ORDER BY id DESC", ttl=0)
-        else:
-            return conn.query("SELECT * FROM opiniones ORDER BY id DESC", ttl=0)
-    except:
-        return pd.DataFrame()
-
-def approve_opinion(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("UPDATE opiniones SET aprobada = TRUE WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-def delete_opinion(id_):
-    try:
-        with conn.session as s:
-            s.execute(text("DELETE FROM opiniones WHERE id = :id"), {"id": id_})
-            s.commit()
-        return True
-    except:
-        return False
-
-# ============================================
-# CONTADOR DE VISITAS
-# ============================================
-if 'visitante_contado' not in st.session_state:
-    actualizar_visitas()
-    st.session_state.visitante_contado = True
-
-visitas = get_visitas()
-
-# ============================================
-# ESTILOS
-# ============================================
+# --- ESTILO VENEZUELA ---
 st.markdown("""
 <style>
-.stApp {
-    background: linear-gradient(180deg, #FFD700 0%, #00247D 50%, #CF142B 100%);
-}
-.main > div {
-    background-color: rgba(0,0,0,0.7);
-    border-radius: 15px;
-    padding: 20px;
-    margin: 10px 0;
-}
-[data-testid="stSidebar"] {
-    background-color: rgba(0,0,0,0.85) !important;
-    border-right: 3px solid #FFD700;
-}
-[data-testid="stSidebar"] * {
-    color: white !important;
-}
-h1, h2, h3, h4 {
-    color: #FFD700 !important;
-}
-p, span, label {
-    color: white !important;
-}
-.stButton > button {
-    background: linear-gradient(135deg, #FFD700, #CF142B);
-    color: white !important;
-    border: none;
-    font-weight: bold;
+#MainMenu {display: none;}
+footer {display: none;}
+.stDeployButton {display: none;}
+header {display: none;}
+[data-testid="stToolbar"] {display: none;}
+[data-testid="stDecoration"] {display: none;}
+[data-testid="stStatusWidget"] {display: none;}
+.stAppDeployButton {display: none;}
+
+.stApp { background-color: #111827; color: #ffffff; }
+p, span, label, .stMarkdown { color: #ffffff; font-weight: 500; }
+
+[data-testid="stSidebar"] { background-color: #1f2937; border-right: 2px solid #ffcc00; }
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] span { color: #ffffff; font-weight: bold; }
+
+button[data-baseweb="tab"] p { color: #ffffff; font-size: 1.1em; font-weight: bold; }
+button[aria-selected="true"] p { color: #ffcc00; }
+
+.venezuela-header {
+    text-align: center;
+    padding-top: 60px;
+    padding-bottom: 40px;
+    padding-left: 10px;
+    padding-right: 10px;
+    background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
     border-radius: 25px;
+    margin-bottom: 30px;
+    box-shadow: 0px 10px 20px rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.1);
 }
-input, textarea, .stSelectbox {
-    background-color: rgba(255,255,255,0.95) !important;
-    color: black !important;
-    border-radius: 12px;
-    border: 2px solid #FFD700 !important;
+
+.logo-main-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
 }
-.stats-panel {
-    background: rgba(0,0,0,0.6);
-    padding: 15px;
-    border-radius: 20px;
-    border: 2px solid #FFD700;
+
+.logo-main-container img {
+    mix-blend-mode: multiply;
+    filter: contrast(120%) brightness(110%);
+    background-color: transparent;
+}
+
+.logo-container {
     text-align: center;
     margin-bottom: 20px;
 }
-.bronze-footer {
+
+.logo-container img {
+    mix-blend-mode: multiply;
+    filter: contrast(110%) brightness(110%);
+}
+
+.stars-arc { color: white; font-size: 1.2em; letter-spacing: 5px; font-weight: bold; text-shadow: 2px 2px 4px #000; margin-top: -10px; }
+
+.ven-share-card {
+    background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%);
+    padding: 20px;
+    border-radius: 15px;
+    text-align: center;
+    border: 2px solid #ffffff;
+    box-shadow: 0px 5px 15px rgba(0,0,0,0.5);
+    margin-bottom: 10px;
+}
+.ven-share-text { color: white; font-weight: bold; text-shadow: 2px 2px 4px #000; text-decoration: none; font-size: 1.1em; }
+
+input, textarea, [data-baseweb="select"] { background-color: #ffffff; color: #000000; font-weight: bold; }
+
+.stats-panel { background: rgba(31, 41, 55, 0.9); padding: 15px; border-radius: 20px; border: 2px solid #ffcc00; text-align: center; margin-bottom: 20px; }
+.holiday-panel { background: linear-gradient(135deg, #0033a0, #001a50); padding: 15px; border-radius: 10px; border-left: 5px solid #ffcc00; margin-bottom: 20px; }
+.efemerides-panel { background: linear-gradient(135deg, #1a3a5c, #0a1a3a); padding: 15px; border-radius: 10px; border-left: 5px solid #ffcc00; margin-bottom: 15px; }
+.footer-willian { background: #000; padding: 30px; text-align: center; border-top: 4px solid #ffcc00; margin-top: 50px; }
+.master-panel { background-color: #0033a0; border: 3px solid #ffcc00; padding: 20px; border-radius: 15px; }
+
+.stExpander { border: 1px solid #ffcc00; background-color: #1f2937; }
+
+.bronze-plaque {
     background: linear-gradient(145deg, #8c6a31, #5d431a);
     border: 5px solid #d4af37;
-    padding: 35px 25px;
-    border-radius: 20px;
+    padding: 50px 20px;
+    border-radius: 15px;
     text-align: center;
-    margin-top: 50px;
+    box-shadow: inset 2px 2px 8px rgba(255,255,255,0.3), 10px 10px 25px rgba(0,0,0,0.7);
+    margin: 50px auto;
+    max-width: 1000px;
     position: relative;
+    overflow: hidden;
 }
-.bronze-footer p {
-    color: #ffd700 !important;
-    font-family: 'Times New Roman', serif;
-    font-weight: bold;
+.bronze-text { color: #ffd700; font-family: 'Times New Roman', serif; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.9); }
+.screw { position: absolute; width: 18px; height: 18px; background: radial-gradient(circle at 30% 30%, #999, #333); border-radius: 50%; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+.screw::after { content: ''; position: absolute; top: 50%; left: 10%; width: 80%; height: 2px; background: #111; transform: translateY(-50%) rotate(45deg); }
+.screw-tl { top: 15px; left: 15px; } .screw-tr { top: 15px; right: 15px; } .screw-bl { bottom: 15px; left: 15px; } .screw-br { bottom: 15px; right: 15px; }
+
+/* Estilos botones compartir */
+.share-wa {
+    background: linear-gradient(135deg, #25D366, #128C7E);
+    padding: 10px;
+    border-radius: 25px;
+    text-align: center;
+    margin-bottom: 10px;
 }
-.bronze-footer .titulo {
-    font-size: 1.8em;
-    letter-spacing: 4px;
+.copy-area {
+    display: flex;
+    gap: 5px;
+    align-items: center;
 }
-.screw {
-    position: absolute;
-    width: 22px;
-    height: 22px;
-    background: radial-gradient(circle at 30% 30%, #bbb, #444);
-    border-radius: 50%;
-    box-shadow: 2px 2px 6px rgba(0,0,0,0.6);
-    border: 1px solid #d4af37;
-}
-.screw::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 15%;
-    width: 70%;
-    height: 2px;
-    background: #333;
-    transform: translateY(-50%) rotate(45deg);
-}
-.screw::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 15%;
-    width: 70%;
-    height: 2px;
-    background: #333;
-    transform: translateY(-50%) rotate(-45deg);
-}
-.screw-tl { top: 15px; left: 15px; }
-.screw-tr { top: 15px; right: 15px; }
-.screw-bl { bottom: 15px; left: 15px; }
-.screw-br { bottom: 15px; right: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================
-# FECHA Y HORA
-# ============================================
-ahora = get_fecha_hora_venezuela()
-dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-
-# ============================================
-# LOGO
-# ============================================
-logo = get_logo()
-if logo:
-    st.markdown(f'<div style="text-align: center;"><img src="{logo}" style="max-width: 200px;"></div>', unsafe_allow_html=True)
-
-# ============================================
-# ENCABEZADO
-# ============================================
-st.markdown(f"""
-<div style="text-align: center; margin-bottom: 20px;">
-    <div style="background: linear-gradient(135deg, #FFD700, #00247D, #CF142B); border-radius: 20px; padding: 20px;">
-        <h1 style="color: white;">🌟 Santa Teresa al Dia 🌟</h1>
-        <p style="color: white;">Informacion, Cultura y Fe para Nuestra Comunidad</p>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================
-# SIDEBAR
-# ============================================
+# --- PANEL LATERAL ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png", width=150)
+    try:
+        logo_res = conn.query("SELECT logo_data FROM configuracion WHERE id = 1", ttl=0)
+        if not logo_res.empty and logo_res.iloc[0,0]:
+            st.markdown(f'<div class="logo-container"><img src="{logo_res.iloc[0,0]}" style="width:220px;"></div>', unsafe_allow_html=True)
+    except Exception:
+        pass
+    st.title("Venezuela Gestion")
+    
+    # ============================================
+    # BOTONES DE COMPARTIR (AGREGADOS SIN BORRAR NADA)
+    # ============================================
     st.markdown("---")
+    st.markdown("### 📢 Compartir App")
     
-    menu = st.radio("📋 Menu Principal", [
-        "🏠 Portada", "📰 Noticias", "🏪 Donde ir - Donde comprar", "🙏 Reflexiones",
-        "📜 Cronicas", "🎬 Multimedia", "⚠️ Denuncias", "💬 Opiniones"
-    ])
+    app_url = get_app_url()
+    whatsapp_url = f"https://api.whatsapp.com/send?text=📱 *Guía Comercial de Santa Teresa*%0A%0AEncuentra comercios, servicios y promociones en tu ciudad.%0A%0A🔗 {app_url}%0A%0A¡Descubre todo lo que nuestra comunidad tiene para ofrecer!"
     
-    st.markdown("---")
-    
-    # Panel de Administracion
-    es_admin = False
-    with st.expander("🔐 Panel de Control", expanded=False):
-        clave = st.text_input("Clave de Administrador:", type="password")
-        if clave == "Juan*316*" or clave == "1966":
-            es_admin = True
-            st.success("✅ Acceso concedido")
-        elif clave:
-            st.error("❌ Clave incorrecta")
-
-# ============================================
-# PANEL SUPERIOR
-# ============================================
-st.markdown(f"""
-<div class="stats-panel">
-    <span style="color: #FFD700;">⭐ {dias[ahora.weekday()]}, {ahora.day} de {meses[ahora.month-1]} de {ahora.year} ⭐</span><br>
-    <span style="color: white; font-size: 1.8em;">{ahora.strftime("%I:%M %p")}</span><br>
-    <span style="color: #FFD700;">👥 Visitantes: {visitas:,} | 💵 Dolar BCV: {dolar:.2f} Bs</span>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================
-# CONTENIDO PRINCIPAL
-# ============================================
-
-# --- PORTADA ---
-if menu == "🏠 Portada":
-    st.title("🌟 Santa Teresa al Dia")
-    
-    st.markdown("### 📰 Ultimas Noticias")
-    noticias = get_noticias()
-    if not noticias.empty:
-        for _, n in noticias.head(5).iterrows():
-            st.info(f"**{n['titulo']}**\n\n{n['contenido'][:300]}...")
-            st.caption(f"📅 {n['fecha']} | 🏷️ {n['categoria']}")
-            st.markdown("---")
-    else:
-        st.info("No hay noticias disponibles")
-    
-    st.markdown("---")
-    st.markdown("### 🙏 Reflexion del Dia")
-    ref = get_reflexion_activa()
-    if ref is not None:
-        st.markdown(f"**{ref['titulo']}**")
-        st.write(ref['contenido'])
-        st.caption(f"📖 {ref['versiculo']}")
-    
-    st.markdown("---")
-    st.markdown("### 🏪 Recomendados")
-    negocios = get_negocios()
-    if not negocios.empty:
-        for _, n in negocios.head(3).iterrows():
-            st.markdown(f"**{n['nombre']}** - {n['categoria']}")
-
-# --- NOTICIAS ---
-elif menu == "📰 Noticias":
-    st.title("📰 Noticias")
-    
-    tab_nac, tab_inter, tab_dep = st.tabs(["🇻🇪 Nacionales", "🌍 Internacionales", "⚽ Deportes"])
-    
-    with tab_nac:
-        noticias = get_noticias(categoria="Nacional")
-        if not noticias.empty:
-            for _, n in noticias.iterrows():
-                st.markdown(f"### {n['titulo']}")
-                st.caption(f"📅 {n['fecha']}")
-                st.write(n['contenido'])
-                st.markdown("---")
-        else:
-            st.info("No hay noticias Nacionales")
-    
-    with tab_inter:
-        noticias = get_noticias(categoria="Internacional")
-        if not noticias.empty:
-            for _, n in noticias.iterrows():
-                st.markdown(f"### {n['titulo']}")
-                st.caption(f"📅 {n['fecha']}")
-                st.write(n['contenido'])
-                st.markdown("---")
-        else:
-            st.info("No hay noticias Internacionales")
-    
-    with tab_dep:
-        noticias = get_noticias(categoria="Deportes")
-        if not noticias.empty:
-            for _, n in noticias.iterrows():
-                st.markdown(f"### {n['titulo']}")
-                st.caption(f"📅 {n['fecha']}")
-                st.write(n['contenido'])
-                st.markdown("---")
-        else:
-            st.info("No hay noticias de Deportes")
-
-# --- DONDE IR - DONDE COMPRAR ---
-elif menu == "🏪 Donde ir - Donde comprar":
-    st.title("🏪 Donde ir - Donde comprar")
-    
-    negocios = get_negocios()
-    if not negocios.empty:
-        for _, n in negocios.iterrows():
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                if n['imagen_url']:
-                    st.image(n['imagen_url'], use_container_width=True)
-                else:
-                    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png", use_container_width=True)
-            with col2:
-                st.markdown(f"### 🏪 {n['nombre']}")
-                st.caption(f"📌 {n['categoria']}")
-                st.write(f"**Reseña:** {n['resena']}")
-                if n['direccion']:
-                    st.write(f"📍 {n['direccion']}")
-                if n['telefono']:
-                    st.write(f"📞 {n['telefono']}")
-                if n['horario']:
-                    st.write(f"⏰ {n['horario']}")
-            st.markdown("---")
-    else:
-        st.info("No hay negocios agregados aún")
-
-# --- REFLEXIONES ---
-elif menu == "🙏 Reflexiones":
-    st.title("🙏 Pan de Vida y Reflexiones")
-    
-    ref = get_reflexion_activa()
-    if ref is not None:
-        st.markdown(f"""
-        <div style="background: linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,36,125,0.5)); 
-                    padding: 30px; border-radius: 20px; border-left: 8px solid #FFD700;">
-            <h2 style="color: #FFD700; text-align: center;">✨ {ref['titulo']} ✨</h2>
-            <p style="font-size: 1.2em; text-align: center;">{ref['contenido']}</p>
-            <p style="margin-top: 15px; text-align: center;"><i>📖 {ref['versiculo']}</i></p>
-            <p style="margin-top: 20px; text-align: right;"><i>— {ref['autor']}, {ref['fecha']}</i></p>
+    st.markdown(f'''
+    <a href="{whatsapp_url}" target="_blank" style="text-decoration: none;">
+        <div class="share-wa">
+            <span style="color: white; font-weight: bold;">📲 Compartir por WhatsApp</span>
         </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.info("No hay reflexión activa para hoy")
-
-# --- CRONICAS ---
-elif menu == "📜 Cronicas":
-    st.title("📜 Cronicas de Venezuela")
+    </a>
+    ''', unsafe_allow_html=True)
     
-    estados_venezuela = ["Todos", "Miranda", "Carabobo", "Distrito Capital", "Zulia", "Lara", "Aragua", "Bolivar", "Anzoategui", "Merida", "Tachira", "Nueva Esparta", "Sucre", "Falcon", "Barinas", "Portuguesa", "Guarico", "Cojedes", "Trujillo", "Yaracuy", "Apure", "Amazonas", "Delta Amacuro", "Vargas"]
-    estado_filtro = st.selectbox("Filtrar por estado", estados_venezuela)
+    col_c1, col_c2 = st.columns([3, 1])
+    with col_c1:
+        st.text_input("", value=app_url, disabled=True, key="url_sidebar", label_visibility="collapsed")
+    with col_c2:
+        if st.button("📋", key="copy_sidebar", help="Copiar enlace"):
+            copy_to_clipboard(app_url)
+            st.success("¡Copiado!")
     
-    cronicas = get_cronicas(estado_filtro if estado_filtro != "Todos" else None)
-    if not cronicas.empty:
-        for _, c in cronicas.iterrows():
-            with st.expander(f"📖 {c['titulo']} - {c['lugar']}, {c['estado']}"):
-                st.write(c['contenido'])
-                st.caption(f"Publicado: {c['fecha']}")
-    else:
-        st.info("No hay cronicas disponibles")
-
-# --- MULTIMEDIA ---
-elif menu == "🎬 Multimedia":
-    st.title("🎬 Multimedia")
+    st.markdown("---")
     
-    tab_videos, tab_musica, tab_radio = st.tabs(["🎥 Videos", "🎵 Musica", "📻 Radio"])
+    # Enlace directo
+    app_url_old = "https://williantuguiasantateresa.streamlit.app/"
+    st.markdown(f"""
+    <div style="text-align: center; margin: 20px 0;">
+        <a href="{app_url_old}" target="_blank" style="text-decoration: none;">
+            <div style="background: linear-gradient(to bottom, #ffcc00 33%, #0033a0 33%, #0033a0 66%, #ce1126 66%); 
+                        padding: 10px; 
+                        border-radius: 10px; 
+                        border: 2px solid #ffffff;
+                        color: white;
+                        font-weight: bold;
+                        text-align: center;">
+                VER GUIA COMERCIAL
+            </div>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
     
-    with tab_videos:
-        videos = get_videos()
-        if not videos.empty:
-            for _, v in videos.iterrows():
-                st.markdown(f"**{v['titulo']}**")
-                mostrar_video(v['video_data'], v['formato'])
-                st.caption(f"Subido: {v['fecha']}")
-                st.markdown("---")
-        else:
-            st.info("No hay videos disponibles. Sube videos desde el Panel de Control.")
+    st.markdown("---")
     
-    with tab_musica:
-        musicas = get_musicas()
-        if not musicas.empty:
-            for _, m in musicas.iterrows():
-                st.markdown(f"**{m['titulo']}**")
-                mostrar_audio(m['audio_data'], m['formato'])
-                st.caption(f"Agregado: {m['fecha']}")
-                st.markdown("---")
-        else:
-            st.info("No hay musica disponible. Sube musica desde el Panel de Control.")
-    
-    with tab_radio:
-        st.markdown("### 📻 Radio Online")
-        st.audio("https://streaming.radiosenlinea.net/9090/stream")
-
-# --- DENUNCIAS ---
-elif menu == "⚠️ Denuncias":
-    st.title("⚠️ Denuncias Ciudadanas")
-    
-    tab1, tab2 = st.tabs(["📝 Hacer Denuncia", "📋 Ver Denuncias"])
-    
-    with tab1:
-        with st.form("form_denuncia"):
-            nombre = st.text_input("Tu nombre (opcional)")
-            titulo = st.text_input("Título de la denuncia")
-            desc = st.text_area("Descripción detallada", height=150)
-            ubic = st.text_input("Ubicación del hecho")
-            if st.form_submit_button("🚨 Enviar Denuncia"):
-                if titulo and desc:
-                    add_denuncia(nombre, titulo, desc, ubic)
-                    st.success("✅ Denuncia enviada")
-                    st.balloons()
-                else:
-                    st.warning("⚠️ Título y descripción son obligatorios")
-    
-    with tab2:
-        denuncias = get_denuncias()
-        if not denuncias.empty:
-            for _, d in denuncias.iterrows():
-                st.markdown(f"""
-                <div style="background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
-                    <strong>📌 {d['titulo']}</strong><br>
-                    <span style="color: #FFD700;">Estado: {d['estatus']}</span><br>
-                    <small>📍 {d['ubicacion']} | 📅 {d['fecha']}</small>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No hay denuncias registradas")
-
-# --- OPINIONES ---
-elif menu == "💬 Opiniones":
-    st.title("💬 Opiniones")
-    
-    tab1, tab2 = st.tabs(["💭 Dar Opinion", "📖 Ver Opiniones"])
-    
-    with tab1:
-        with st.form("form_opinion"):
-            usuario = st.text_input("Tu nombre")
-            comentario = st.text_area("Tu opinión", height=100)
-            estrellas = st.slider("Calificación", 1, 5, 5)
-            if st.form_submit_button("Enviar Opinión"):
-                if usuario and comentario:
-                    add_opinion(usuario, comentario, estrellas)
-                    st.success("✅ Gracias por tu opinión!")
-                    st.balloons()
-                else:
-                    st.warning("⚠️ Nombre y comentario son obligatorios")
-    
-    with tab2:
-        opiniones = get_opiniones(aprobadas=True)
-        if not opiniones.empty:
-            for _, op in opiniones.iterrows():
-                estrellas = "⭐" * op['calificacion']
-                st.markdown(f"""
-                <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
-                    <strong>{op['usuario']}</strong> {estrellas}<br>
-                    "{op['comentario']}"<br>
-                    <small>📅 {op['fecha']}</small>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No hay opiniones aún")
-
-# ============================================
-# PANEL DE ADMINISTRACION
-# ============================================
-if es_admin:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🛠️ Panel de Control")
-    
-    admin_option = st.sidebar.radio("Seleccionar", [
-        "📝 Noticias",
-        "🏪 Negocios",
-        "🙏 Reflexiones",
-        "📜 Cronicas",
-        "🎬 Videos",
-        "🎵 Musica",
-        "⚠️ Denuncias",
-        "💬 Opiniones",
-        "⚙️ Configuracion"
-    ])
-    
-    # --- ADMIN: NOTICIAS ---
-    if admin_option == "📝 Noticias":
-        st.title("📝 Gestionar Noticias")
-        
-        with st.form("form_noticia"):
-            st.subheader("➕ Publicar Nueva Noticia")
-            titulo = st.text_input("Título")
-            categoria = st.selectbox("Categoría", ["Nacional", "Internacional", "Deportes", "Reportajes"])
-            contenido = st.text_area("Contenido", height=200)
-            imagen = st.file_uploader("Imagen", type=["jpg", "png", "jpeg"])
-            if st.form_submit_button("📢 Publicar"):
-                if titulo and contenido:
-                    if add_noticia(titulo, categoria, contenido, imagen):
-                        st.success("✅ Noticia publicada!")
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Complete los campos")
-        
-        st.markdown("---")
-        st.subheader("📋 Noticias Existentes")
-        noticias = get_noticias()
-        if not noticias.empty:
-            for _, n in noticias.iterrows():
-                with st.expander(f"{n['titulo']} - {n['fecha']}"):
-                    if n['imagen_url']:
-                        st.image(n['imagen_url'], width=200)
-                    st.write(n['contenido'])
-                    if st.button("🗑️ Eliminar", key=f"del_not_{n['id']}"):
-                        delete_noticia(n['id'])
-                        st.rerun()
-        else:
-            st.info("No hay noticias")
-    
-    # --- ADMIN: NEGOCIOS ---
-    elif admin_option == "🏪 Negocios":
-        st.title("🏪 Gestionar Negocios")
-        
-        with st.form("form_negocio"):
-            st.subheader("➕ Agregar Negocio")
-            nombre = st.text_input("Nombre")
-            categoria = st.text_input("Categoría")
-            resena = st.text_area("Reseña", height=100)
-            direccion = st.text_input("Dirección")
-            telefono = st.text_input("Teléfono")
-            horario = st.text_input("Horario")
-            imagen = st.file_uploader("Foto", type=["jpg", "png", "jpeg"])
-            if st.form_submit_button("🏪 Agregar"):
-                if nombre and resena:
-                    if add_negocio(nombre, categoria, resena, direccion, telefono, horario, imagen):
-                        st.success("✅ Negocio agregado!")
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Complete los campos")
-        
-        st.markdown("---")
-        st.subheader("📋 Negocios Existentes")
-        negocios = get_negocios()
-        if not negocios.empty:
-            for _, n in negocios.iterrows():
-                with st.expander(f"{n['nombre']} - {n['categoria']}"):
-                    if n['imagen_url']:
-                        st.image(n['imagen_url'], width=200)
-                    st.write(n['resena'])
-                    if st.button("🗑️ Eliminar", key=f"del_neg_{n['id']}"):
-                        delete_negocio(n['id'])
-                        st.rerun()
-        else:
-            st.info("No hay negocios")
-    
-    # --- ADMIN: REFLEXIONES ---
-    elif admin_option == "🙏 Reflexiones":
-        st.title("🙏 Gestionar Reflexiones")
-        
-        with st.form("form_reflexion"):
-            st.subheader("➕ Nueva Reflexión")
-            titulo = st.text_input("Título")
-            versiculo = st.text_input("Versículo")
-            contenido = st.text_area("Contenido", height=150)
-            if st.form_submit_button("🙏 Guardar"):
-                if titulo and contenido:
-                    if add_reflexion(titulo, contenido, versiculo):
-                        st.success("✅ Reflexión guardada!")
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Complete los campos")
-        
-        st.markdown("---")
-        st.subheader("📋 Reflexiones Anteriores")
-        reflexiones = get_reflexiones()
-        if not reflexiones.empty:
-            for _, r in reflexiones.iterrows():
-                with st.expander(f"{r['titulo']} - {r['fecha']}"):
-                    st.write(r['contenido'])
-                    st.caption(f"Versículo: {r['versiculo']}")
-                    if st.button("🗑️ Eliminar", key=f"del_ref_{r['id']}"):
-                        delete_reflexion(r['id'])
-                        st.rerun()
-        else:
-            st.info("No hay reflexiones")
-    
-    # --- ADMIN: CRONICAS ---
-    elif admin_option == "📜 Cronicas":
-        st.title("📜 Gestionar Crónicas")
-        
-        with st.form("form_cronica"):
-            st.subheader("➕ Nueva Crónica")
-            titulo = st.text_input("Título")
-            lugar = st.text_input("Lugar")
-            estado = st.selectbox("Estado", ["Miranda", "Carabobo", "Distrito Capital", "Zulia", "Lara", "Aragua", "Bolivar", "Anzoategui", "Merida", "Tachira", "Nueva Esparta", "Sucre", "Falcon", "Barinas", "Portuguesa", "Guarico", "Cojedes", "Trujillo", "Yaracuy", "Apure", "Amazonas", "Delta Amacuro", "Vargas"])
-            contenido = st.text_area("Contenido", height=150)
-            if st.form_submit_button("📜 Guardar"):
-                if titulo and contenido:
-                    if add_cronica(titulo, contenido, lugar, estado):
-                        st.success("✅ Crónica guardada!")
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Complete los campos")
-        
-        st.markdown("---")
-        st.subheader("📋 Crónicas Existentes")
-        cronicas = get_cronicas()
-        if not cronicas.empty:
-            for _, c in cronicas.iterrows():
-                with st.expander(f"{c['titulo']} - {c['lugar']}, {c['estado']}"):
-                    st.write(c['contenido'])
-                    if st.button("🗑️ Eliminar", key=f"del_cron_{c['id']}"):
-                        delete_cronica(c['id'])
-                        st.rerun()
-        else:
-            st.info("No hay crónicas")
-    
-    # --- ADMIN: VIDEOS (SUBIR DESDE LAPTOP - PERSISTENTE) ---
-    elif admin_option == "🎬 Videos":
-        st.title("🎬 Gestionar Videos")
-        
-        with st.form("form_video"):
-            st.subheader("➕ Subir Video desde tu PC")
-            titulo = st.text_input("Título del Video")
-            archivo_video = st.file_uploader("Seleccionar video (MP4, AVI, MOV, MKV)", type=["mp4", "avi", "mov", "mkv"])
-            st.info("📌 Tamaño máximo: 50 MB. El video se almacena permanentemente en la base de datos.")
-            if st.form_submit_button("🎬 Subir Video"):
-                if titulo and archivo_video:
-                    if add_video(titulo, archivo_video):
-                        st.success("✅ Video subido exitosamente!")
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Complete los campos")
-        
-        st.markdown("---")
-        st.subheader("📋 Videos Existentes")
-        videos = get_videos()
-        if not videos.empty:
-            for _, v in videos.iterrows():
-                with st.expander(v['titulo']):
-                    mostrar_video(v['video_data'], v['formato'])
-                    if st.button("🗑️ Eliminar", key=f"del_vid_{v['id']}"):
-                        delete_video(v['id'])
-                        st.rerun()
-        else:
-            st.info("No hay videos subidos")
-    
-    # --- ADMIN: MUSICA (SUBIR DESDE LAPTOP - PERSISTENTE) ---
-    elif admin_option == "🎵 Musica":
-        st.title("🎵 Gestionar Música")
-        
-        with st.form("form_musica"):
-            st.subheader("➕ Subir Música desde tu PC")
-            titulo = st.text_input("Título de la Canción")
-            archivo_audio = st.file_uploader("Seleccionar audio (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
-            st.info("📌 Tamaño máximo: 20 MB. El audio se almacena permanentemente en la base de datos.")
-            if st.form_submit_button("🎵 Subir Música"):
-                if titulo and archivo_audio:
-                    if add_musica(titulo, archivo_audio):
-                        st.success("✅ Música subida exitosamente!")
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Complete los campos")
-        
-        st.markdown("---")
-        st.subheader("📋 Canciones Existentes")
-        musicas = get_musicas()
-        if not musicas.empty:
-            for _, m in musicas.iterrows():
-                with st.expander(m['titulo']):
-                    mostrar_audio(m['audio_data'], m['formato'])
-                    if st.button("🗑️ Eliminar", key=f"del_mus_{m['id']}"):
-                        delete_musica(m['id'])
-                        st.rerun()
-        else:
-            st.info("No hay música subida")
-    
-    # --- ADMIN: DENUNCIAS ---
-    elif admin_option == "⚠️ Denuncias":
-        st.title("⚠️ Gestionar Denuncias")
-        
-        denuncias = get_denuncias()
-        if not denuncias.empty:
-            for _, d in denuncias.iterrows():
-                with st.expander(f"{d['titulo']} - {d['estatus']}"):
-                    st.write(f"**Denunciante:** {d['denunciante']}")
-                    st.write(f"**Descripción:** {d['descripcion']}")
-                    st.write(f"**Ubicación:** {d['ubicacion']}")
-                    nuevo_estado = st.selectbox("Estado", ["Pendiente", "En revisión", "Resuelta", "Descartada"], key=f"est_{d['id']}")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("✅ Actualizar", key=f"upd_{d['id']}"):
-                            update_denuncia_status(d['id'], nuevo_estado)
-                            st.rerun()
-                    with col2:
-                        if st.button("🗑️ Eliminar", key=f"del_den_{d['id']}"):
-                            delete_denuncia(d['id'])
-                            st.rerun()
-        else:
-            st.info("No hay denuncias")
-    
-    # --- ADMIN: OPINIONES ---
-    elif admin_option == "💬 Opiniones":
-        st.title("💬 Gestionar Opiniones")
-        
-        st.subheader("⏳ Pendientes de Aprobar")
-        opiniones_pendientes = get_opiniones(aprobadas=False)
-        if not opiniones_pendientes.empty:
-            for _, op in opiniones_pendientes.iterrows():
-                if not op['aprobada']:
-                    with st.expander(f"{op['usuario']} - {op['fecha']}"):
-                        st.write(op['comentario'])
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("✅ Aprobar", key=f"aprob_{op['id']}"):
-                                approve_opinion(op['id'])
-                                st.rerun()
-                        with col2:
-                            if st.button("🗑️ Eliminar", key=f"del_op_{op['id']}"):
-                                delete_opinion(op['id'])
-                                st.rerun()
-        else:
-            st.info("No hay opiniones pendientes")
-        
-        st.markdown("---")
-        st.subheader("✅ Opiniones Aprobadas")
-        opiniones_aprobadas = get_opiniones(aprobadas=True)
-        if not opiniones_aprobadas.empty:
-            for _, op in opiniones_aprobadas.iterrows():
-                with st.expander(f"{op['usuario']} - {op['fecha']}"):
-                    st.write(op['comentario'])
-                    if st.button("🗑️ Eliminar", key=f"del_aprob_{op['id']}"):
-                        delete_opinion(op['id'])
-                        st.rerun()
-        else:
-            st.info("No hay opiniones aprobadas")
-    
-    # --- ADMIN: CONFIGURACION ---
-    elif admin_option == "⚙️ Configuracion":
-        st.title("⚙️ Configuración")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🎨 Logo de la App")
-            if logo:
-                st.image(logo, width=150)
-            nuevo_logo = st.file_uploader("Subir nuevo logo", type=["png", "jpg"])
-            if nuevo_logo and st.button("💾 Guardar Logo"):
-                logo_b64 = img_a_base64(nuevo_logo)
-                if logo_b64:
-                    save_logo(logo_b64)
-                    st.success("Logo guardado!")
-                    st.rerun()
-        
-        with col2:
-            st.subheader("💰 Dólar BCV")
-            st.write(f"Precio actual: {dolar:.2f} Bs/USD")
-            nuevo_dolar = st.number_input("Nuevo valor (Bs/USD)", value=float(dolar), step=0.01)
-            if st.button("💾 Actualizar Dólar"):
-                if actualizar_dolar_manual(nuevo_dolar):
-                    st.success(f"Dólar actualizado a {nuevo_dolar:.2f} Bs")
-                    st.rerun()
+    # Panel de administracion (requiere clave)
+    with st.expander("Acceso Administrador"):
+        clave_admin = st.text_input("Clave:", type="password", key="admin_key")
+        if clave_admin == "Juan*316*":
+            st.success("Acceso concedido")
             
             st.markdown("---")
-            st.markdown("### 📊 Estadísticas")
-            st.metric("Total de Noticias", len(get_noticias()))
-            st.metric("Total de Negocios", len(get_negocios()))
-            st.metric("Total de Crónicas", len(get_cronicas()))
-            st.metric("Total de Denuncias", len(get_denuncias()))
-            st.metric("Total de Videos", len(get_videos()))
-            st.metric("Total de Canciones", len(get_musicas()))
+            st.write("### Panel de Control")
+            
+            tab_admin1, tab_admin2, tab_admin3, tab_admin4, tab_admin5, tab_admin6 = st.tabs(["Denuncias", "Agregar", "Editar", "Opiniones", "Logo", "📸 Subir Fotos"])
+            
+            with tab_admin1:
+                st.write("### Gestion de Denuncias")
+                try:
+                    den_df = conn.query("SELECT * FROM denuncias ORDER BY id DESC", ttl=0)
+                    if not den_df.empty:
+                        st.dataframe(den_df[['id','denunciante','comercio_afectado','motivo','fecha','estatus']], use_container_width=True)
+                        st.markdown("**Cambiar estatus:**")
+                        den_ids = den_df['id'].tolist()
+                        sel_den_id = st.selectbox("ID de denuncia", den_ids, key="sel_den")
+                        nuevo_estatus = st.selectbox("Nuevo estatus", ["Pendiente", "En revision", "Resuelta", "Descartada"], key="nuevo_est_den")
+                        if st.button("Actualizar estatus", key="btn_den_upd"):
+                            with conn.session as s:
+                                s.execute(text("UPDATE denuncias SET estatus=:e WHERE id=:id"), {"e": nuevo_estatus, "id": int(sel_den_id)})
+                                s.commit()
+                            st.success("Actualizado")
+                            st.rerun()
+                        if st.button("Eliminar denuncia", key="btn_den_del"):
+                            with conn.session as s:
+                                s.execute(text("DELETE FROM denuncias WHERE id=:id"), {"id": int(sel_den_id)})
+                                s.commit()
+                            st.success("Eliminada")
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                
+                st.markdown("---")
+                st.write("### Nueva Denuncia")
+                with st.form("form_denuncia"):
+                    den_nombre = st.text_input("Tu nombre")
+                    den_comercio = st.text_input("Comercio afectado")
+                    den_motivo = st.text_area("Motivo")
+                    if st.form_submit_button("Enviar"):
+                        if den_nombre.strip() and den_comercio.strip() and den_motivo.strip():
+                            with conn.session as s:
+                                s.execute(text("INSERT INTO denuncias (denunciante, comercio_afectado, motivo, fecha) VALUES (:d, :c, :m, :f)"),
+                                          {"d": den_nombre.strip(), "c": den_comercio.strip(), "m": den_motivo.strip(), "f": datetime.now().strftime("%d/%m/%Y")})
+                                s.commit()
+                            st.success("Denuncia registrada")
+                            st.rerun()
+            
+            with tab_admin2:
+                st.write("### Agregar Comercio")
+                with st.form("add_comercio"):
+                    add_n = st.text_input("Nombre")
+                    add_cat = st.selectbox("Categoria", CAT_LIST)
+                    add_ub = st.text_input("Ubicacion")
+                    add_maps = st.text_input("Google Maps URL")
+                    add_res = st.text_area("Reseña")
+                    add_est = st.slider("Calificacion", 1, 5, 5)
+                    add_fotos = st.file_uploader("Imagenes", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+                    if st.form_submit_button("Registrar"):
+                        if add_n:
+                            with conn.session as s:
+                                p_img = imagen_a_base64(add_fotos[0]) if add_fotos else None
+                                res_ins = s.execute(text("""
+                                    INSERT INTO comercios (nombre, categoria, ubicacion, resenna_willian, estrellas_w, foto_url, maps_url, visitas) 
+                                    VALUES (:n, :c, :u, :r, :e, :f, :m, 0) RETURNING id
+                                """), {"n": add_n, "c": add_cat, "u": add_ub, "r": add_res, "e": add_est, "f": p_img, "m": add_maps})
+                                new_id = res_ins.fetchone()[0]
+                                if new_id and add_fotos and len(add_fotos) > 1:
+                                    for extra in add_fotos[1:]:
+                                        s.execute(text("INSERT INTO fotos_comercios (comercio_id, foto_data) VALUES (:cid, :fd)"),
+                                                  {"cid": new_id, "fd": imagen_a_base64(extra)})
+                                s.commit()
+                            st.success("Comercio agregado")
+                            st.rerun()
+                        else:
+                            st.error("Nombre requerido")
+            
+            # TAB EDICION Y ELIMINACION
+            with tab_admin3:
+                st.write("### ✏️ Editar Comercio")
+                try:
+                    comercios_list = conn.query("SELECT id, nombre, categoria FROM comercios ORDER BY nombre", ttl=0)
+                    
+                    if not comercios_list.empty:
+                        comercio_nombres = comercios_list['nombre'].tolist()
+                        
+                        st.markdown("#### Selecciona el comercio a EDITAR")
+                        sel_comercio_edit = st.selectbox(
+                            "Comercio para editar", 
+                            comercio_nombres, 
+                            key="select_edit_comercio"
+                        )
+                        
+                        target_edit = comercios_list[comercios_list['nombre'] == sel_comercio_edit].iloc[0]
+                        datos_comercio = conn.query("SELECT * FROM comercios WHERE id = :id", params={"id": int(target_edit['id'])}, ttl=0)
+                        
+                        if not datos_comercio.empty:
+                            row = datos_comercio.iloc[0]
+                            with st.form(key="form_editar_comercio"):
+                                st.markdown(f"**Editando: {row['nombre']}**")
+                                new_n = st.text_input("Nombre", value=row['nombre'] if row['nombre'] else "")
+                                new_cat = st.selectbox("Categoria", CAT_LIST, index=CAT_LIST.index(row['categoria']) if row['categoria'] in CAT_LIST else 0, key="edit_cat")
+                                new_ub = st.text_input("Ubicacion", value=row['ubicacion'] if row['ubicacion'] else "")
+                                new_maps = st.text_input("Google Maps URL", value=row['maps_url'] if row['maps_url'] else "")
+                                new_est = st.slider("Calificacion", 1, 5, int(row['estrellas_w']) if row['estrellas_w'] else 3, key="edit_est")
+                                new_res = st.text_area("Reseña", value=row['resenna_willian'] if row['resenna_willian'] else "")
+                                if st.form_submit_button("💾 Guardar Cambios"):
+                                    with conn.session as s:
+                                        s.execute(text("UPDATE comercios SET nombre=:n, categoria=:c, ubicacion=:u, resenna_willian=:r, estrellas_w=:e, maps_url=:m WHERE id=:id"),
+                                                  {"n": new_n, "c": new_cat, "u": new_ub, "r": new_res, "e": new_est, "m": new_maps, "id": int(row['id'])})
+                                        s.commit()
+                                    st.success(f"✅ Comercio '{new_n}' actualizado")
+                                    st.rerun()
+                        
+                        st.markdown("---")
+                        st.markdown("### 🗑️ Eliminar Comercio")
+                        st.warning("⚠️ Esta accion es irreversible.")
+                        sel_comercio_delete = st.selectbox("Selecciona el comercio a ELIMINAR", comercio_nombres, key="select_delete_comercio")
+                        target_delete = comercios_list[comercios_list['nombre'] == sel_comercio_delete].iloc[0]
+                        st.info(f"📌 Comercio seleccionado: **{target_delete['nombre']}**")
+                        confirmar_texto = st.text_input(f"Escribe **ELIMINAR** para confirmar la eliminacion", key="confirm_delete_input")
+                        if st.button("🗑️ ELIMINAR Comercio", type="secondary", key="btn_delete_comercio_final"):
+                            if confirmar_texto == "ELIMINAR":
+                                with conn.session as s:
+                                    s.execute(text("DELETE FROM fotos_comercios WHERE comercio_id=:id"), {"id": int(target_delete['id'])})
+                                    s.execute(text("DELETE FROM opiniones WHERE comercio_id=:id"), {"id": int(target_delete['id'])})
+                                    s.execute(text("DELETE FROM comercios WHERE id=:id"), {"id": int(target_delete['id'])})
+                                    s.commit()
+                                st.success(f"✅ Comercio eliminado")
+                                st.rerun()
+                            else:
+                                st.error("❌ No se elimino. Escribe exactamente 'ELIMINAR'")
+                    else:
+                        st.info("No hay comercios registrados")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+            
+            with tab_admin4:
+                st.write("### Gestion de Opiniones")
+                try:
+                    op_all = conn.query("""
+                        SELECT o.id, c.nombre AS comercio, o.usuario, o.comentario, o.estrellas_u, o.fecha
+                        FROM opiniones o
+                        LEFT JOIN comercios c ON o.comercio_id = c.id
+                        ORDER BY o.id DESC
+                    """, ttl=0)
+                    if not op_all.empty:
+                        st.dataframe(op_all, use_container_width=True)
+                        op_ids = op_all['id'].tolist()
+                        del_id = st.selectbox("ID a eliminar", op_ids)
+                        if st.button("Eliminar Opinion"):
+                            with conn.session as s:
+                                s.execute(text("DELETE FROM opiniones WHERE id=:id"), {"id": int(del_id)})
+                                s.commit()
+                            st.success("Eliminada")
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            
+            with tab_admin5:
+                st.write("### Configurar Logo")
+                try:
+                    logo_actual = conn.query("SELECT logo_data FROM configuracion WHERE id = 1", ttl=0)
+                    if not logo_actual.empty and logo_actual.iloc[0,0]:
+                        st.markdown(f'<img src="{logo_actual.iloc[0,0]}" style="width:150px;">', unsafe_allow_html=True)
+                        if st.button("Eliminar Logo"):
+                            with conn.session as s:
+                                s.execute(text("UPDATE configuracion SET logo_data=NULL WHERE id=1"))
+                                s.commit()
+                            st.rerun()
+                except Exception:
+                    pass
+                
+                nuevo_logo = st.file_uploader("Subir Logo", type=["png", "jpg", "jpeg"])
+                if nuevo_logo and st.button("Guardar Logo"):
+                    logo_b64 = imagen_a_base64(nuevo_logo)
+                    if logo_b64:
+                        with conn.session as s:
+                            existe = s.execute(text("SELECT id FROM configuracion WHERE id=1")).fetchone()
+                            if existe:
+                                s.execute(text("UPDATE configuracion SET logo_data=:l WHERE id=1"), {"l": logo_b64})
+                            else:
+                                s.execute(text("INSERT INTO configuracion (id, logo_data) VALUES (1, :l)"), {"l": logo_b64})
+                            s.commit()
+                        st.success("Logo guardado")
+                        st.rerun()
+            
+            with tab_admin6:
+                st.write("### 📸 Subir Fotos a Comercios")
+                try:
+                    comercios_lista = conn.query("SELECT id, nombre FROM comercios ORDER BY nombre", ttl=0)
+                    if not comercios_lista.empty:
+                        comercio_opciones = {row['nombre']: row['id'] for _, row in comercios_lista.iterrows()}
+                        comercio_sel = st.selectbox("Selecciona el Comercio", list(comercio_opciones.keys()), key="select_comercio_fotos")
+                        comercio_id = comercio_opciones[comercio_sel]
+                        
+                        fotos_existentes = conn.query("SELECT id, foto_data FROM fotos_comercios WHERE comercio_id = :cid", params={"cid": comercio_id}, ttl=0)
+                        if not fotos_existentes.empty:
+                            st.markdown("#### 📷 Fotos actuales:")
+                            cols = st.columns(3)
+                            for idx, (_, foto) in enumerate(fotos_existentes.iterrows()):
+                                with cols[idx % 3]:
+                                    st.image(foto['foto_data'], use_container_width=True)
+                                    if st.button(f"🗑️ Eliminar", key=f"del_foto_{foto['id']}"):
+                                        with conn.session as s:
+                                            s.execute(text("DELETE FROM fotos_comercios WHERE id = :fid"), {"fid": foto['id']})
+                                            s.commit()
+                                        st.success("Foto eliminada")
+                                        st.rerun()
+                        
+                        st.markdown("---")
+                        fotos_subir = st.file_uploader("Seleccionar fotos", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="upload_fotos")
+                        if fotos_subir and st.button("✅ Guardar Fotos", key="btn_guardar_fotos"):
+                            fotos_guardadas = 0
+                            for foto in fotos_subir:
+                                foto_b64 = imagen_a_base64(foto)
+                                if foto_b64:
+                                    with conn.session as s:
+                                        s.execute(text("INSERT INTO fotos_comercios (comercio_id, foto_data) VALUES (:cid, :foto)"),
+                                                  {"cid": comercio_id, "foto": foto_b64})
+                                        s.commit()
+                                    fotos_guardadas += 1
+                            if fotos_guardadas > 0:
+                                st.success(f"✅ {fotos_guardadas} foto(s) guardada(s)")
+                                st.rerun()
+                    else:
+                        st.info("No hay comercios registrados")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
-# ============================================
-# FOOTER - PLACA DE BRONCE
-# ============================================
+# --- ENCABEZADO PRINCIPAL ---
+st.markdown('<div class="venezuela-header"><div class="stars-arc">★★★★★★★★</div></div>', unsafe_allow_html=True)
+
+# --- LOGO CENTRADO ---
+try:
+    logo_res_main = conn.query("SELECT logo_data FROM configuracion WHERE id = 1", ttl=0)
+    if not logo_res_main.empty and logo_res_main.iloc[0,0]:
+        st.markdown(f'<div class="logo-main-container"><img src="{logo_res_main.iloc[0,0]}" style="width:350px;"></div>', unsafe_allow_html=True)
+except Exception:
+    pass
+
+# --- LOGICA TEMPORAL Y EFEMERIDES ---
+ahora_vzla = datetime.utcnow() - timedelta(hours=4)
+dias_semana = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+efemeride_ve, efemeride_mundo, extra_ve, extra_mundo = obtener_efemerides()
+
+festivos_2026 = [
+    (datetime(2026, 1, 1), "Año Nuevo"),
+    (datetime(2026, 2, 16), "Lunes de Carnaval"),
+    (datetime(2026, 2, 17), "Martes de Carnaval"),
+    (datetime(2026, 3, 19), "Dia de San Jose"),
+    (datetime(2026, 4, 2), "Jueves Santo"),
+    (datetime(2026, 4, 3), "Viernes Santo"),
+    (datetime(2026, 4, 19), "Declaracion de la Independencia"),
+    (datetime(2026, 5, 1), "Dia del Trabajador"),
+    (datetime(2026, 6, 24), "Batalla de Carabobo"),
+    (datetime(2026, 7, 5), "Dia de la Independencia"),
+    (datetime(2026, 7, 24), "Natalicio de Simon Bolivar"),
+    (datetime(2026, 10, 12), "Dia de la Resistencia Indigena"),
+    (datetime(2026, 12, 24), "Vispera de Navidad"),
+    (datetime(2026, 12, 25), "Navidad"),
+    (datetime(2026, 12, 31), "Fin de Año")
+]
+
+proximo_festivo = "No hay mas festivos este año"
+for fecha, nombre in festivos_2026:
+    if fecha.date() >= ahora_vzla.date():
+        proximo_festivo = f"{nombre} ({fecha.strftime('%d/%m')})"
+        break
+
+st.markdown(f'''
+<div class="stats-panel">
+<span style="color:#ffcc00; font-size:1.1em; font-weight:bold;">{dias_semana[ahora_vzla.weekday()]}, {ahora_vzla.day} de {meses[ahora_vzla.month-1]} de {ahora_vzla.year}
+</span><br>
+<b style="color:#ffffff; font-size:1.4em;">{ahora_vzla.strftime("%I:%M %p")}</b><br>
+<span style="font-size:1.2em; border-top: 1px solid #444; padding-top:5px; display:block; margin-top:5px; color:#ffffff;">🇻🇪 VISITAS TOTALES: {total_visitas}</span>
+</div>
+''', unsafe_allow_html=True)
+
+st.markdown(f'''
+<div class="efemerides-panel">
+    <span style="color:#ffcc00; font-weight:bold; font-size:1.1em;">VENEZUELA</span><br>
+    <span style="color:white;">📅 {efemeride_ve}</span><br>
+    <span style="color:#ffcc00; font-size:0.9em; margin-top:5px; display:block;">✨ {extra_ve}</span>
+</div>
+''', unsafe_allow_html=True)
+
+st.markdown(f'''
+<div class="efemerides-panel">
+    <span style="color:#ffcc00; font-weight:bold; font-size:1.1em;">MUNDO</span><br>
+    <span style="color:white;">📅 {efemeride_mundo}</span><br>
+    <span style="color:#ffcc00; font-size:0.9em; margin-top:5px; display:block;">✨ {extra_mundo}</span>
+</div>
+''', unsafe_allow_html=True)
+
+st.markdown(f'''
+<div class="holiday-panel">
+    <span style="color:#ffcc00; font-weight:bold;">PROXIMO DIA FERIADO VENEZUELA 2026:</span><br>
+    <span style="color:white; font-weight:bold;">{proximo_festivo}</span>
+</div>
+''', unsafe_allow_html=True)
+
+# --- GUIA COMERCIAL ---
+st.title("Guia Comercial Almenar")
+
+# --- ENLACES ---
+link_app = "https://williantuguiasantateresa.streamlit.app/"
+whatsapp_url_principal = f"https://api.whatsapp.com/send?text=Mira la Guia Comercial de Santa Teresa! {link_app}"
+col_s1, col_s2 = st.columns(2)
+with col_s1:
+    st.markdown(f'<a href="{whatsapp_url_principal}" target="_blank" style="text-decoration:none;"><div class="ven-share-card"><span class="ven-share-text">Compartir por WhatsApp</span></div></a>', unsafe_allow_html=True)
+with col_s2:
+    st.markdown(f'<div class="ven-share-card"><span class="ven-share-text">Enlace Directo:</span><br><b style="color:#ffcc00; font-size:0.9em;">{link_app}</b></div>', unsafe_allow_html=True)
+
+st.markdown("---")
+busq = st.text_input("Que buscas en Santa Teresa?", placeholder="Ej: Panaderia, Farmacia...")
+tab_labels = ["Todos"] + CAT_LIST
+tabs_main = st.tabs(tab_labels)
+
+try:
+    df = conn.query("SELECT * FROM comercios", ttl=0)
+except Exception:
+    df = pd.DataFrame()
+
+try:
+    todas_opiniones = conn.query("SELECT * FROM opiniones ORDER BY id DESC", ttl=0)
+except Exception:
+    todas_opiniones = pd.DataFrame()
+
+try:
+    todas_fotos = conn.query("SELECT * FROM fotos_comercios", ttl=0)
+except Exception:
+    todas_fotos = pd.DataFrame()
+
+for i, tab in enumerate(tabs_main):
+    with tab:
+        categoria_seleccionada = tab_labels[i]
+        if not df.empty:
+            filtrado = df[df['nombre'].str.contains(busq, case=False) | df['categoria'].str.contains(busq, case=False)]
+            if categoria_seleccionada != "Todos":
+                filtrado = filtrado[filtrado['categoria'] == categoria_seleccionada]
+            
+            if filtrado.empty:
+                st.warning(f"No hay comercios registrados en {categoria_seleccionada}." if categoria_seleccionada != "Todos" else "No se encontraron resultados.")
+            else:
+                for idx, r in filtrado.iterrows():
+                    expander_titulo = f"{r['nombre']} - {r['categoria']}"
+                    with st.expander(expander_titulo):
+                        visit_key = f"visited_{r['id']}"
+                        if visit_key not in st.session_state:
+                            try:
+                                with conn.session as s:
+                                    s.execute(text("UPDATE comercios SET visitas = visitas + 1 WHERE id = :id"), {"id": int(r['id'])})
+                                    s.commit()
+                                st.session_state[visit_key] = True
+                            except Exception:
+                                pass
+
+                        col_img, col_info = st.columns([1, 2])
+                        with col_img:
+                            if isinstance(r['foto_url'], str) and (r['foto_url'].startswith('http') or r['foto_url'].startswith('data:image')):
+                                st.image(r['foto_url'], use_container_width=True, caption="Foto Principal")
+                            
+                            extras = todas_fotos[todas_fotos['comercio_id'] == r['id']]
+                            if not extras.empty:
+                                for _, f_row in extras.iterrows():
+                                    try:
+                                        st.image(f_row['foto_data'], use_container_width=True)
+                                    except Exception:
+                                        pass
+
+                        with col_info:
+                            st.write(f"**Ubicacion:** {r['ubicacion']}")
+                            if r['maps_url']:
+                                st.link_button("IR A ESTA UBICACION (Google Maps)", r['maps_url'], type="primary", use_container_width=True)
+                            try:
+                                estrellas_w_val = int(r['estrellas_w']) if r['estrellas_w'] is not None and str(r['estrellas_w']).isdigit() else 0
+                                st.write(f"**Calificacion Willian:** {'*' * estrellas_w_val}")
+                            except:
+                                st.write(f"**Calificacion Willian:** ")
+                            st.info(f"**Reseña de Willian:** {r['resenna_willian']}")
+                            st.markdown("---")
+                            if not todas_opiniones.empty:
+                                op_df = todas_opiniones[todas_opiniones['comercio_id'] == r['id']]
+                                for _, op in op_df.iterrows():
+                                    try:
+                                        estrellas_u_val = int(op['estrellas_u']) if op['estrellas_u'] is not None and str(op['estrellas_u']).isdigit() else 0
+                                        st.markdown(f"<div style='border-bottom: 1px solid #444; padding: 5px;'><b>{op['usuario']}</b>: {op['comentario']} ({'*'*estrellas_u_val})</div>", unsafe_allow_html=True)
+                                    except:
+                                        st.markdown(f"<div style='border-bottom: 1px solid #444; padding: 5px;'><b>{op['usuario']}</b>: {op['comentario']}</div>", unsafe_allow_html=True)
+
+                        st.markdown("##### Deja tu opinion")
+                        unique_id = str(uuid.uuid4()).replace('-', '')[:8]
+                        form_key = f"opinion_form_{r['id']}_{idx}_{i}_{unique_id}"
+                        with st.form(key=form_key):
+                            op_usuario = st.text_input("Tu nombre", key=f"op_user_{r['id']}_{idx}_{i}_{unique_id}")
+                            op_comentario = st.text_area("Comentario", key=f"op_com_{r['id']}_{idx}_{i}_{unique_id}")
+                            op_estrellas = st.slider("Tu calificacion", 1, 5, 5, key=f"op_est_{r['id']}_{idx}_{i}_{unique_id}")
+                            if st.form_submit_button("Enviar opinion"):
+                                if op_usuario.strip() and op_comentario.strip():
+                                    fecha_op = ahora_vzla.strftime("%d/%m/%Y")
+                                    try:
+                                        with conn.session as s:
+                                            s.execute(text(
+                                                "INSERT INTO opiniones (comercio_id, usuario, comentario, estrellas_u, fecha) "
+                                                "VALUES (:cid, :u, :c, :e, :f)"
+                                            ), {"cid": int(r['id']), "u": op_usuario.strip(), "c": op_comentario.strip(), "e": op_estrellas, "f": fecha_op})
+                                            s.commit()
+                                        st.success("Opinion enviada! Gracias.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error al guardar opinion: {e}")
+                                else:
+                                    st.warning("Escribe tu nombre y comentario antes de enviar.")
+
+# --- PIE DE PAGINA ---
 st.markdown("""
-<div class="bronze-footer">
-    <div class="screw screw-tl"></div>
-    <div class="screw screw-tr"></div>
-    <div class="screw screw-bl"></div>
-    <div class="screw screw-br"></div>
-    <p class="titulo">⚜️ DESARROLLADO POR WILLIAN ALMENAR ⚜️</p>
-    <p>Prohibida la reproducción total o parcial</p>
-    <p>DERECHOS RESERVADOS</p>
-    <p>Santa Teresa del Tuy, 2026</p>
+<div class='footer-willian'>
+    <p style='color: #ffcc00 !important; font-size: 1.2em; font-weight: bold; margin-bottom: 10px;'>
+        UNETE A NOSOTROS Y QUE TU NEGOCIO FORME PARTE DE ESTA GUIA COMERCIAL!
+    </p>
+    <p style='color: #ffffff !important; font-size: 1.1em;'>
+        Contactanos por el 04242004015 (Solo WhatsApp)
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# --- PLACA DE BRONCE ---
+st.markdown("""
+<div class="bronze-plaque">
+    <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+    <div class="bronze-text">
+        <span style="font-size: 2.2em;">Generado por Willian Almenar</span><br><br>
+        <span style="font-size: 1.5em; opacity: 0.85;">Prohibida la reproduccion total o parcial</span><br>
+        <span style="font-size: 1.8em; letter-spacing: 6px; display: block; margin: 15px 0;">DERECHOS RESERVADOS</span>
+        <span style="font-size: 1.9em;">Santa Teresa del Tuy 2.026</span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
