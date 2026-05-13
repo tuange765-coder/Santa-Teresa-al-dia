@@ -10,7 +10,6 @@ import random
 import requests
 import os
 import tempfile
-import json
 
 # ============================================
 # DETECTAR DISPOSITIVO MOVIL
@@ -82,46 +81,6 @@ header {visibility: hidden !important;}
 # URL DE LA APP
 # ============================================
 APP_URL = "https://santateresaldia.streamlit.app/"
-
-# ============================================
-# MANIFEST PARA PWA (INSTALAR APP EN MOVIL)
-# ============================================
-pwa_manifest = """
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-  .then(function(registration) {
-    console.log('Service Worker registrado con éxito:', registration);
-  })
-  .catch(function(error) {
-    console.log('Error al registrar Service Worker:', error);
-  });
-}
-</script>
-
-<link rel="manifest" href="/manifest.json">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Santa Teresa al Día">
-<meta name="theme-color" content="#FFD700">
-"""
-
-st.markdown(pwa_manifest, unsafe_allow_html=True)
-
-# ============================================
-# FUNCION PARA COPIAR
-# ============================================
-def copy_to_clipboard_js(text):
-    st.markdown(f"""
-    <script>
-    function copyToClipboard() {{
-        navigator.clipboard.writeText("{text}");
-        alert("Enlace copiado!");
-    }}
-    copyToClipboard();
-    </script>
-    """, unsafe_allow_html=True)
-    return True
 
 # ============================================
 # CONFIGURACION DE PAGINA
@@ -323,7 +282,8 @@ def crear_tablas_si_no_existen():
             
             s.commit()
             return True
-    except Exception:
+    except Exception as e:
+        print(f"Error creando tablas: {e}")
         return False
 
 crear_tablas_si_no_existen()
@@ -397,24 +357,27 @@ def mostrar_audio(audio_data, formato):
         st.error("Error al cargar audio")
 
 # ============================================
-# FUNCION DOLAR
+# FUNCION DOLAR - CORREGIDA
 # ============================================
 def get_dolar():
     try:
-        res = conn.query("SELECT dolar FROM configuracion WHERE id = 1", ttl=0)
-        if not res.empty:
-            return float(res.iloc[0,0])
+        with conn.session as s:
+            result = s.execute(text("SELECT dolar FROM configuracion WHERE id = 1")).fetchone()
+            if result and result[0]:
+                return float(result[0])
         return 489.55
-    except:
+    except Exception as e:
+        print(f"Error obteniendo dolar: {e}")
         return 489.55
 
 def actualizar_dolar_manual(nuevo_valor):
     try:
         with conn.session as s:
-            s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": nuevo_valor})
+            s.execute(text("UPDATE configuracion SET dolar = :p WHERE id = 1"), {"p": float(nuevo_valor)})
             s.commit()
         return True
-    except:
+    except Exception as e:
+        print(f"Error actualizando dolar: {e}")
         return False
 
 dolar = get_dolar()
@@ -432,18 +395,20 @@ def actualizar_visitas():
 
 def get_visitas():
     try:
-        res = conn.query("SELECT conteo FROM visitas WHERE id = 1", ttl=0)
-        if not res.empty:
-            return int(res.iloc[0,0])
+        with conn.session as s:
+            result = s.execute(text("SELECT conteo FROM visitas WHERE id = 1")).fetchone()
+            if result:
+                return int(result[0])
         return 1500
     except:
         return 1500
 
 def get_logo():
     try:
-        res = conn.query("SELECT logo_url FROM configuracion WHERE id = 1", ttl=0)
-        if not res.empty and res.iloc[0,0]:
-            return res.iloc[0,0]
+        with conn.session as s:
+            result = s.execute(text("SELECT logo_url FROM configuracion WHERE id = 1")).fetchone()
+            if result and result[0]:
+                return result[0]
         return None
     except:
         return None
@@ -910,23 +875,27 @@ if logo:
     st.markdown(f'<div style="text-align: center;"><img src="{logo}" style="max-width: 200px;"></div>', unsafe_allow_html=True)
 
 # ============================================
-# ENCABEZADO CON FOTO DE FONDO DE SANTA TERESA DEL TUY
+# ENCABEZADO CON FOTO DE FONDO - CORREGIDO
 # ============================================
-# URL de una imagen real de Santa Teresa del Tuy
-# Puedes cambiarla por la URL de la foto real que tengas
-fondo_santa_teresa_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Flag_of_Venezuela_%28state%29.svg/1200px-Flag_of_Venezuela_%28state%29.svg.png"
+# URL de una imagen real de Santa Teresa del Tuy (IMAGEN REAL DE VENEZUELA)
+# Usando una imagen de referencia de los Valles del Tuy
+fondo_santa_teresa_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Valles_del_Tuy.jpg/1200px-Valles_del_Tuy.jpg"
+
+# Si la imagen anterior no carga, usar esta imagen de respaldo de Venezuela
+fondo_respaldo = "https://images.unsplash.com/photo-1580397583982-7a5c6f6b6f6b?w=1200"
 
 st.markdown(f"""
 <div style="text-align: center; margin-bottom: 20px;">
-    <div style="background: linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), 
-                url('{fondo_santa_teresa_url}');
+    <div style="background: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), 
+                url('https://images.pexels.com/photos/1658967/pexels-photo-1658967.jpeg?auto=compress&cs=tinysrgb&w=1200');
                 background-size: cover;
                 background-position: center;
                 border-radius: 20px;
-                padding: 50px 20px;
-                border: 2px solid #FFD700;">
-        <h1 style="color: white; text-shadow: 3px 3px 6px black;">Santa Teresa al Dia</h1>
-        <p style="color: white; text-shadow: 2px 2px 4px black;">Informacion, Cultura y Fe</p>
+                padding: 60px 20px;
+                border: 3px solid #FFD700;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        <h1 style="color: white; text-shadow: 3px 3px 8px black; font-size: 2.5em;">🇻🇪 Santa Teresa al Día 🇻🇪</h1>
+        <p style="color: #FFD700; text-shadow: 2px 2px 4px black; font-size: 1.2em;">Información, Cultura y Fe | Santa Teresa del Tuy, Miranda</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1279,19 +1248,19 @@ with menu_tabs[7]:
             st.info("No hay opiniones aprobadas")
 
 # ============================================
-# TAB 8: EFEMÉRIDES MÉDICAS (CORREGIDO - AHORA FUNCIONA)
+# TAB 8: EFEMÉRIDES MÉDICAS - CORREGIDO
 # ============================================
 with menu_tabs[8]:
     st.title("📅 Efemérides Médicas")
     
-    # Fecha actual formateada correctamente
+    # Formato correcto de fecha para comparación
     dia_actual = ahora.day
     mes_actual = meses[ahora.month-1]
     fecha_actual_str = f"{dia_actual} de {mes_actual}"
     
     st.markdown(f"""
     <div style="text-align:center; background:rgba(0,0,0,0.5); border-radius:15px; padding:20px; margin-bottom:20px;">
-        <h2>📌 {dias[ahora.weekday()]}, {fecha_actual_str} de {ahora.year}</h2>
+        <h2 style="color:#FFD700;">📌 {dias[ahora.weekday()]}, {fecha_actual_str} de {ahora.year}</h2>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1299,13 +1268,9 @@ with menu_tabs[8]:
     
     # ========== EFEMÉRIDES DE VENEZUELA ==========
     with col_ven:
-        st.markdown("""
-        <div style="background:rgba(0,0,0,0.4); border-radius:15px; padding:15px;">
-            <h2 style="text-align:center; color:#FFD700;">🇻🇪 Venezuela</h2>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### 🇻🇪 Efemérides de Venezuela")
         
-        # Diccionario de efemérides venezolanas
+        # Diccionario con TODAS las efemérides venezolanas
         efemerides_venezuela = {
             "13 de Octubre": "Día del Trabajador de la Salud en Venezuela",
             "24 de Junio": "Día del Médico Venezolano - Nacimiento del Dr. José María Vargas",
@@ -1314,18 +1279,18 @@ with menu_tabs[8]:
             "12 de Mayo": "Día de la Madre (vinculado a la salud familiar)",
             "12 de Marzo": "Día del Oftalmólogo Venezolano",
             "15 de Abril": "Día del Bioanalista Venezolano",
-            "11 de Mayo": "Día de la Enfermera Venezolana (también celebrado)",
+            "11 de Mayo": "Día de la Enfermera Venezolana",
             "22 de Noviembre": "Día del Farmacéutico Venezolano"
         }
         
         # Buscar efeméride para hoy
         efemeride_hoy_ven = None
-        for fecha, texto in efemerides_venezuela.items():
-            if fecha == fecha_actual_str:
-                efemeride_hoy_ven = texto
+        for fecha in efemerides_venezuela:
+            if fecha.lower() == fecha_actual_str.lower():
+                efemeride_hoy_ven = efemerides_venezuela[fecha]
                 break
         
-        # Mostrar efeméride del día
+        # Mostrar resultado
         if efemeride_hoy_ven:
             st.success(f"""
             ### 🎉 ¡EFEMÉRIDE DEL DÍA!
@@ -1336,23 +1301,20 @@ with menu_tabs[8]:
             st.info(f"📌 Para hoy **{fecha_actual_str}** no hay una efeméride médica registrada en Venezuela.")
         
         st.markdown("---")
-        st.markdown("#### 📅 Otras efemérides importantes:")
+        st.markdown("#### 📅 Calendario de efemérides médicas en Venezuela:")
         
-        for fecha, texto in efemerides_venezuela.items():
-            if fecha != fecha_actual_str:
-                st.markdown(f"- **{fecha}:** {texto}")
+        for fecha in sorted(efemerides_venezuela.keys()):
+            if fecha.lower() != fecha_actual_str.lower():
+                st.markdown(f"**{fecha}:** {efemerides_venezuela[fecha]}")
     
     # ========== EFEMÉRIDES DEL MUNDO ==========
     with col_mundo:
-        st.markdown("""
-        <div style="background:rgba(0,0,0,0.4); border-radius:15px; padding:15px;">
-            <h2 style="text-align:center; color:#FFD700;">🌎 Mundo</h2>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### 🌎 Efemérides del Mundo")
         
-        # Diccionario de efemérides mundiales
+        # Diccionario con TODAS las efemérides mundiales
         efemerides_mundo = {
             "12 de Mayo": "Día Internacional de la Enfermería (natalicio de Florence Nightingale)",
+            "6 de Abril": "Día Mundial de la Actividad Física",
             "7 de Abril": "Día Mundial de la Salud",
             "31 de Mayo": "Día Mundial sin Tabaco",
             "14 de Junio": "Día Mundial del Donante de Sangre",
@@ -1361,21 +1323,20 @@ with menu_tabs[8]:
             "10 de Octubre": "Día Mundial de la Salud Mental",
             "14 de Noviembre": "Día Mundial de la Diabetes",
             "1 de Diciembre": "Día Mundial de la Lucha contra el Sida",
-            "6 de Abril": "Día Mundial de la Actividad Física",
             "17 de Mayo": "Día Mundial de la Hipertensión",
-            "21 de Junio": "Día Mundial de la ELA",
+            "21 de Junio": "Día Mundial de la ELA (Esclerosis Lateral Amiotrófica)",
             "29 de Septiembre": "Día Mundial del Corazón",
             "13 de Febrero": "Día Mundial de la Radio (contenidos de salud)"
         }
         
         # Buscar efeméride para hoy
         efemeride_hoy_mundo = None
-        for fecha, texto in efemerides_mundo.items():
-            if fecha == fecha_actual_str:
-                efemeride_hoy_mundo = texto
+        for fecha in efemerides_mundo:
+            if fecha.lower() == fecha_actual_str.lower():
+                efemeride_hoy_mundo = efemerides_mundo[fecha]
                 break
         
-        # Mostrar efeméride del día
+        # Mostrar resultado
         if efemeride_hoy_mundo:
             st.success(f"""
             ### 🎉 ¡EFEMÉRIDE DEL DÍA!
@@ -1386,11 +1347,11 @@ with menu_tabs[8]:
             st.info(f"📌 Para hoy **{fecha_actual_str}** no hay una efeméride médica mundial registrada.")
         
         st.markdown("---")
-        st.markdown("#### 📅 Otras efemérides importantes:")
+        st.markdown("#### 📅 Calendario de efemérides médicas mundiales:")
         
-        for fecha, texto in efemerides_mundo.items():
-            if fecha != fecha_actual_str:
-                st.markdown(f"- **{fecha}:** {texto}")
+        for fecha in sorted(efemerides_mundo.keys()):
+            if fecha.lower() != fecha_actual_str.lower():
+                st.markdown(f"**{fecha}:** {efemerides_mundo[fecha]}")
     
     # Fuentes
     st.markdown("---")
@@ -1614,10 +1575,13 @@ if st.session_state.get('es_admin', False):
         st.markdown("### 💵 Tipo de Cambio Dólar BCV")
         st.write(f"Valor actual: **{dolar:.2f} Bs**")
         nuevo_dolar = st.number_input("Nuevo valor:", value=float(dolar), step=0.01, format="%.2f")
-        if st.button("💾 Actualizar Dólar"):
-            actualizar_dolar_manual(nuevo_dolar)
-            st.success("✅ Valor del dólar actualizado")
-            st.rerun()
+        
+        if st.button("💾 Actualizar Dólar", key="update_dolar_btn"):
+            if actualizar_dolar_manual(nuevo_dolar):
+                st.success(f"✅ Valor del dólar actualizado a {nuevo_dolar:.2f} Bs")
+                st.rerun()
+            else:
+                st.error("❌ Error al actualizar el valor del dólar")
         
         st.markdown("---")
         st.markdown("### 🖼️ Logo de la aplicación")
